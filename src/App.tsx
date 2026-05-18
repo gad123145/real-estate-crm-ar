@@ -1,5 +1,6 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import JSZip from 'jszip'
 import './App.css'
 import {
   createAppointmentRecord,
@@ -18,7 +19,7 @@ import {
 } from './supabaseData'
 import { isSupabaseConfigured, supabase } from './supabaseClient'
 
-type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments'
+type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail'
 export type ClientKind = 'owner' | 'seeker' | 'general'
 export type MediaKind = 'image' | 'video' | 'file'
 
@@ -266,6 +267,10 @@ function fileSizeLabel(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+function safeDownloadName(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'property'
+}
+
 function ownerToForm(owner: PropertyOwner): OwnerForm {
   return {
     propertyCode: owner.propertyCode,
@@ -352,6 +357,10 @@ function App() {
   const [ownerSearch, setOwnerSearch] = useState('')
   const [seekerSearch, setSeekerSearch] = useState('')
   const [appointmentSearch, setAppointmentSearch] = useState('')
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null)
+  const [downloadingOwnerId, setDownloadingOwnerId] = useState<string | null>(null)
+  const [mediaArchive, setMediaArchive] = useState<{ ownerId: string; url: string; name: string } | null>(null)
+  const mediaArchiveUrlRef = useRef<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(false)
@@ -364,6 +373,12 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (mediaArchiveUrlRef.current) URL.revokeObjectURL(mediaArchiveUrlRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -446,6 +461,8 @@ function App() {
   const visibleAppointments = appointments
     .filter((appointment) => searchable(appointment).includes(appointmentSearch.trim().toLowerCase()))
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))
+  const selectedOwner = owners.find((owner) => owner.id === selectedOwnerId) ?? null
+  const selectedCoverMedia = selectedOwner?.media.find((media) => media.mediaKind === 'image') ?? selectedOwner?.media[0]
 
   const linkedClientOptions = useMemo(
     () => [
@@ -610,7 +627,54 @@ function App() {
   const editOwner = (owner: PropertyOwner) => {
     setOwnerForm(ownerToForm(owner))
     setEditingOwnerId(owner.id)
+    setSelectedOwnerId(null)
     setActiveSection('owners')
+  }
+
+  const openOwnerDetails = (owner: PropertyOwner) => {
+    setSelectedOwnerId(owner.id)
+    setActiveSection('propertyDetail')
+  }
+
+  const backToOwners = () => {
+    setSelectedOwnerId(null)
+    setActiveSection('owners')
+  }
+
+  const downloadOwnerMedia = async (owner: PropertyOwner) => {
+    if (owner.media.length === 0) {
+      setStatusMessage('لا توجد صور أو فيديوهات لتحميلها لهذا العقار.')
+      return
+    }
+
+    setDownloadingOwnerId(owner.id)
+    setStatusMessage('')
+
+    try {
+      const zip = new JSZip()
+
+      for (const [index, media] of owner.media.entries()) {
+        const response = await fetch(media.publicUrl)
+        if (!response.ok) throw new Error(`تعذر تحميل الملف: ${media.fileName}`)
+        zip.file(`${index + 1}-${safeDownloadName(media.fileName)}`, await response.blob())
+      }
+
+      const archiveName = `${safeDownloadName(owner.propertyCode || owner.ownerName || owner.id)}-media.zip`
+      const archiveUrl = URL.createObjectURL(await zip.generateAsync({ type: 'blob' }))
+      const anchor = document.createElement('a')
+      anchor.href = archiveUrl
+      anchor.download = archiveName
+      document.body.append(anchor)
+      anchor.click()
+      anchor.remove()
+      if (mediaArchiveUrlRef.current) URL.revokeObjectURL(mediaArchiveUrlRef.current)
+      mediaArchiveUrlRef.current = archiveUrl
+      setMediaArchive({ ownerId: owner.id, url: archiveUrl, name: archiveName })
+    } catch (error) {
+      setStatusMessage(getCrmErrorMessage(error))
+    } finally {
+      setDownloadingOwnerId(null)
+    }
   }
 
   const editSeeker = (seeker: DemandClient) => {
@@ -634,6 +698,7 @@ function App() {
         await deletePropertyOwnerAndAppointments(id)
         setOwners((current) => current.filter((owner) => owner.id !== id))
         setAppointments((current) => current.filter((appointment) => appointment.linkedClientId !== id))
+        if (selectedOwnerId === id) backToOwners()
       } catch (error) {
         setStatusMessage(getCrmErrorMessage(error))
       } finally {
@@ -1152,67 +1217,155 @@ function App() {
               <input className="search-input" placeholder="بحث باسم، رقم، منطقة، نوع عقار" value={ownerSearch} onChange={(event) => setOwnerSearch(event.target.value)} />
               <div className="record-list">
                 {visibleOwners.length === 0 && <p className="empty-state">لا توجد سجلات مطابقة.</p>}
-                {visibleOwners.map((owner) => (
-                  <article className="record-row" key={owner.id}>
-                    <div className="record-main">
-                      <span className="status-pill">{owner.status}</span>
-                      <h3>{owner.ownerName}</h3>
-                      <p>{owner.propertyType} {owner.listingIntent} - {owner.city || 'مدينة غير محددة'} - {owner.district || 'منطقة غير محددة'}</p>
-                      <div className="meta-line">
-                        {owner.propertyCode && <span>كود {owner.propertyCode}</span>}
-                        <span>{owner.phone}</span>
-                        <span>{owner.price || 'سعر غير محدد'}</span>
-                        <span>{owner.area || 'مساحة غير محددة'}</span>
-                        {owner.bedrooms && <span>{owner.bedrooms} غرف</span>}
-                        {owner.bathrooms && <span>{owner.bathrooms} حمام</span>}
-                        <span>أضيف {formatDateTime(owner.createdAt)}</span>
-                      </div>
-                      <div className="property-detail-grid">
-                        {owner.buildingName && <span>المبنى: {owner.buildingName}</span>}
-                        {owner.unitNumber && <span>الوحدة: {owner.unitNumber}</span>}
-                        {owner.floor && <span>الدور: {owner.floor}</span>}
-                        {owner.finishing && <span>التشطيب: {owner.finishing}</span>}
-                        {owner.furnishing && <span>الفرش: {owner.furnishing}</span>}
-                        {owner.viewDescription && <span>الفيو: {owner.viewDescription}</span>}
-                        {owner.licenseStatus && <span>الترخيص/العقد: {owner.licenseStatus}</span>}
-                        {owner.deliveryDate && <span>التسليم: {owner.deliveryDate}</span>}
-                        {owner.paymentPlan && <span>الدفع: {owner.paymentPlan}</span>}
-                        {owner.amenities && <span>المميزات: {owner.amenities}</span>}
-                      </div>
-                      {(owner.mapUrl || owner.virtualTourUrl) && (
-                        <div className="link-line">
-                          {owner.mapUrl && <a href={owner.mapUrl} target="_blank" rel="noreferrer">فتح الخريطة</a>}
-                          {owner.virtualTourUrl && <a href={owner.virtualTourUrl} target="_blank" rel="noreferrer">فتح الجولة/الفيديو</a>}
+                {visibleOwners.map((owner) => {
+                  const coverMedia = owner.media.find((media) => media.mediaKind === 'image') ?? owner.media[0]
+
+                  return (
+                    <article className="property-card" key={owner.id}>
+                      <button type="button" className="property-card-main" onClick={() => openOwnerDetails(owner)}>
+                        <div className="property-cover">
+                          {coverMedia?.mediaKind === 'image' && <img src={coverMedia.publicUrl} alt={owner.ownerName} loading="lazy" />}
+                          {coverMedia?.mediaKind === 'video' && <video src={coverMedia.publicUrl} muted preload="metadata" />}
+                          {!coverMedia && <span>{owner.propertyType}</span>}
                         </div>
-                      )}
-                      {owner.media.length > 0 && (
-                        <div className="media-gallery">
-                          {owner.media.map((media) => (
-                            <div className="media-card" key={media.id}>
-                              {media.mediaKind === 'image' && <img src={media.publicUrl} alt={media.fileName} loading="lazy" />}
-                              {media.mediaKind === 'video' && <video src={media.publicUrl} controls preload="metadata" />}
-                              {media.mediaKind === 'file' && <div className="file-tile">{media.fileName}</div>}
-                              <div className="media-card-actions">
-                                <a href={media.publicUrl} download={media.fileName} target="_blank" rel="noreferrer">تحميل</a>
-                                <button type="button" onClick={() => deleteOwnerMedia(media)}>حذف</button>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="property-card-copy">
+                          <span className="status-pill">{owner.status}</span>
+                          <h3>{owner.propertyType} {owner.listingIntent}</h3>
+                          <p>{owner.city || 'مدينة غير محددة'} - {owner.district || 'منطقة غير محددة'}</p>
+                          <div className="property-card-price">{owner.price || 'سعر غير محدد'}</div>
+                          <div className="meta-line">
+                            {owner.propertyCode && <span>كود {owner.propertyCode}</span>}
+                            {owner.area && <span>{owner.area}</span>}
+                            {owner.bedrooms && <span>{owner.bedrooms} غرف</span>}
+                            {owner.bathrooms && <span>{owner.bathrooms} حمام</span>}
+                            <span>{numberFormatter.format(owner.media.length)} وسائط</span>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </button>
                     <div className="row-actions">
                       {phoneHref(owner.phone) && <a className="text-action" href={phoneHref(owner.phone)}>اتصال</a>}
                       {whatsappHref(owner.whatsapp || owner.phone) && <a className="text-action" href={whatsappHref(owner.whatsapp || owner.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+                      <button type="button" className="text-action" onClick={() => openOwnerDetails(owner)}>تفاصيل</button>
                       <button type="button" className="text-action" onClick={() => addAppointmentForOwner(owner)}>ميعاد</button>
                       <button type="button" className="text-action" onClick={() => editOwner(owner)}>تعديل</button>
                       <button type="button" className="danger-action" onClick={() => deleteOwner(owner.id)}>حذف</button>
                     </div>
                   </article>
-                ))}
+                  )
+                })}
               </div>
             </div>
           </section>
+        )}
+
+        {activeSection === 'propertyDetail' && (
+          selectedOwner ? (
+            <section className="property-detail-page" aria-label="تفاصيل العقار">
+              <div className="detail-toolbar">
+                <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+                <button type="button" className="text-action" onClick={() => editOwner(selectedOwner)}>تعديل البيانات</button>
+              </div>
+
+              <article className="property-detail-hero">
+                <div className="detail-cover">
+                  {selectedCoverMedia?.mediaKind === 'image' && <img src={selectedCoverMedia.publicUrl} alt={selectedOwner.ownerName} />}
+                  {selectedCoverMedia?.mediaKind === 'video' && <video src={selectedCoverMedia.publicUrl} controls preload="metadata" />}
+                  {!selectedCoverMedia && <span>{selectedOwner.propertyType}</span>}
+                </div>
+                <div className="detail-summary">
+                  <span className="status-pill">{selectedOwner.status}</span>
+                  <h2>{selectedOwner.propertyType} {selectedOwner.listingIntent}</h2>
+                  <p>{selectedOwner.city || 'مدينة غير محددة'} - {selectedOwner.district || 'منطقة غير محددة'} - {selectedOwner.address || 'عنوان غير محدد'}</p>
+                  <div className="detail-price">{selectedOwner.price || 'سعر غير محدد'}</div>
+                  <div className="meta-line">
+                    {selectedOwner.propertyCode && <span>كود {selectedOwner.propertyCode}</span>}
+                    {selectedOwner.area && <span>{selectedOwner.area}</span>}
+                    {selectedOwner.bedrooms && <span>{selectedOwner.bedrooms} غرف</span>}
+                    {selectedOwner.bathrooms && <span>{selectedOwner.bathrooms} حمام</span>}
+                    <span>{numberFormatter.format(selectedOwner.media.length)} وسائط</span>
+                    <span>أضيف {formatDateTime(selectedOwner.createdAt)}</span>
+                  </div>
+                  <div className="row-actions detail-actions">
+                    <button
+                      type="button"
+                      className="primary-action"
+                      disabled={downloadingOwnerId === selectedOwner.id || selectedOwner.media.length === 0}
+                      onClick={() => downloadOwnerMedia(selectedOwner)}
+                    >
+                      {downloadingOwnerId === selectedOwner.id ? 'جار تجهيز الملف...' : 'تحميل كل الوسائط'}
+                    </button>
+                    {mediaArchive?.ownerId === selectedOwner.id && (
+                      <a className="secondary-action" href={mediaArchive.url} download={mediaArchive.name}>الملف جاهز للتحميل</a>
+                    )}
+                    {phoneHref(selectedOwner.phone) && <a className="text-action" href={phoneHref(selectedOwner.phone)}>اتصال</a>}
+                    {whatsappHref(selectedOwner.whatsapp || selectedOwner.phone) && <a className="text-action" href={whatsappHref(selectedOwner.whatsapp || selectedOwner.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+                    <button type="button" className="text-action" onClick={() => addAppointmentForOwner(selectedOwner)}>ميعاد</button>
+                  </div>
+                </div>
+              </article>
+
+              <section className="detail-section">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">بيانات العقار</p>
+                  <h2>التفاصيل الكاملة</h2>
+                </div>
+                <div className="detail-grid">
+                  {selectedOwner.ownerName && <span>المالك: {selectedOwner.ownerName}</span>}
+                  {selectedOwner.phone && <span>الهاتف: {selectedOwner.phone}</span>}
+                  {selectedOwner.whatsapp && <span>واتساب: {selectedOwner.whatsapp}</span>}
+                  {selectedOwner.buildingName && <span>المبنى/الكمبوند: {selectedOwner.buildingName}</span>}
+                  {selectedOwner.unitNumber && <span>الوحدة: {selectedOwner.unitNumber}</span>}
+                  {selectedOwner.floor && <span>الدور: {selectedOwner.floor}</span>}
+                  {selectedOwner.receptionRooms && <span>الريسبشن/الصالات: {selectedOwner.receptionRooms}</span>}
+                  {selectedOwner.finishing && <span>التشطيب: {selectedOwner.finishing}</span>}
+                  {selectedOwner.furnishing && <span>الفرش: {selectedOwner.furnishing}</span>}
+                  {selectedOwner.viewDescription && <span>الفيو: {selectedOwner.viewDescription}</span>}
+                  {selectedOwner.licenseStatus && <span>الترخيص/العقد: {selectedOwner.licenseStatus}</span>}
+                  {selectedOwner.deliveryDate && <span>التسليم: {selectedOwner.deliveryDate}</span>}
+                  {selectedOwner.paymentPlan && <span>الدفع: {selectedOwner.paymentPlan}</span>}
+                  {selectedOwner.availability && <span>الإتاحة: {selectedOwner.availability}</span>}
+                  {selectedOwner.source && <span>المصدر: {selectedOwner.source}</span>}
+                  {selectedOwner.amenities && <span className="wide-detail">المميزات: {selectedOwner.amenities}</span>}
+                  {selectedOwner.notes && <span className="wide-detail">ملاحظات: {selectedOwner.notes}</span>}
+                </div>
+                {(selectedOwner.mapUrl || selectedOwner.virtualTourUrl) && (
+                  <div className="link-line detail-links">
+                    {selectedOwner.mapUrl && <a href={selectedOwner.mapUrl} target="_blank" rel="noreferrer">فتح الخريطة</a>}
+                    {selectedOwner.virtualTourUrl && <a href={selectedOwner.virtualTourUrl} target="_blank" rel="noreferrer">فتح الجولة/الفيديو الخارجي</a>}
+                  </div>
+                )}
+              </section>
+
+              <section className="detail-section">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">الوسائط</p>
+                  <h2>صور وفيديوهات العقار</h2>
+                </div>
+                {selectedOwner.media.length === 0 && <p className="empty-state">لم يتم رفع صور أو فيديوهات لهذا العقار بعد.</p>}
+                {selectedOwner.media.length > 0 && (
+                  <div className="detail-media-grid">
+                    {selectedOwner.media.map((media) => (
+                      <figure className="detail-media-item" key={media.id}>
+                        {media.mediaKind === 'image' && <img src={media.publicUrl} alt={media.fileName} loading="lazy" />}
+                        {media.mediaKind === 'video' && <video src={media.publicUrl} controls preload="metadata" />}
+                        {media.mediaKind === 'file' && <div className="file-tile">{media.fileName}</div>}
+                        <figcaption>
+                          <span>{media.fileName}</span>
+                          <small>{fileSizeLabel(media.fileSize)}</small>
+                        </figcaption>
+                        <button type="button" className="danger-action" onClick={() => deleteOwnerMedia(media)}>حذف الملف</button>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </section>
+          ) : (
+            <section className="detail-section">
+              <p className="empty-state">لم يتم العثور على العقار المحدد.</p>
+              <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+            </section>
+          )
         )}
 
         {activeSection === 'seekers' && (

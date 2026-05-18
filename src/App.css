@@ -295,7 +295,9 @@ main {
 .today-panel,
 .alerts-panel,
 .latest-panel,
-.form-panel {
+.form-panel,
+.detail-section,
+.property-detail-hero {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -340,7 +342,9 @@ main {
 .today-panel,
 .alerts-panel,
 .latest-panel,
-.form-panel {
+.form-panel,
+.detail-section,
+.property-detail-hero {
   padding: 22px;
 }
 
@@ -367,6 +371,85 @@ main {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.property-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.property-card-main {
+  background: transparent;
+  color: inherit;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 170px minmax(0, 1fr);
+  padding: 0;
+  text-align: start;
+  width: 100%;
+}
+
+.property-cover,
+.detail-cover {
+  align-items: center;
+  background: linear-gradient(135deg, var(--green-soft), var(--blue-soft));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--green-dark);
+  display: grid;
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 900;
+  overflow: hidden;
+  place-items: center;
+}
+
+.property-cover {
+  aspect-ratio: 4 / 3;
+}
+
+.property-cover img,
+.property-cover video,
+.detail-cover img,
+.detail-cover video {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.property-card-copy {
+  min-width: 0;
+}
+
+.property-card-copy h3 {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 24px;
+  line-height: 1.15;
+  margin: 10px 0 6px;
+}
+
+.property-card-copy p {
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.property-card-price,
+.detail-price {
+  color: var(--green-dark);
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 900;
+  margin-bottom: 10px;
+}
+
+.property-card:hover {
+  border-color: rgba(40, 117, 104, 0.35);
+  box-shadow: 0 18px 45px rgba(40, 50, 47, 0.1);
 }
 
 .timeline-item,
@@ -579,6 +662,114 @@ textarea {
   color: var(--red);
 }
 
+.property-detail-page {
+  display: grid;
+  gap: 18px;
+}
+
+.detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.property-detail-hero {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(0, 1.05fr);
+}
+
+.detail-cover {
+  aspect-ratio: 16 / 11;
+  min-height: 320px;
+}
+
+.detail-summary {
+  align-content: center;
+  display: grid;
+  gap: 12px;
+}
+
+.detail-summary h2 {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 42px;
+  line-height: 1.08;
+  margin: 0;
+}
+
+.detail-summary p {
+  color: var(--muted);
+  font-size: 18px;
+  margin: 0;
+}
+
+.detail-actions {
+  margin-top: 8px;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-grid span {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-weight: 800;
+  padding: 12px;
+}
+
+.detail-grid .wide-detail {
+  grid-column: 1 / -1;
+}
+
+.detail-links {
+  margin-top: 14px;
+}
+
+.detail-media-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.detail-media-item {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.detail-media-item img,
+.detail-media-item video,
+.detail-media-item .file-tile {
+  aspect-ratio: 4 / 3;
+  border-radius: 7px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.detail-media-item figcaption {
+  color: var(--ink);
+  display: grid;
+  font-size: 13px;
+  font-weight: 900;
+  gap: 3px;
+}
+
+.detail-media-item small {
+  color: var(--muted);
+}
+
 .records-area {
   min-width: 0;
 }
@@ -679,7 +870,8 @@ textarea {
 @media (max-width: 1100px) {
   .app-header,
   .dashboard-grid,
-  .workspace-grid {
+  .workspace-grid,
+  .property-detail-hero {
     grid-template-columns: 1fr;
   }
 
@@ -714,8 +906,22 @@ textarea {
   }
 
   .timeline-item,
-  .record-row {
+  .record-row,
+  .property-card-main {
     grid-template-columns: 1fr;
+  }
+
+  .detail-grid,
+  .detail-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-summary h2 {
+    font-size: 32px;
+  }
+
+  .detail-cover {
+    min-height: 220px;
   }
 
   .row-actions,
