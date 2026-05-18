@@ -5,11 +5,13 @@ import {
   createAppointmentRecord,
   createDemandClient,
   createPropertyOwner,
+  deletePropertyMediaRecord,
   deleteAppointmentRecord,
   deleteDemandClientAndAppointments,
   deletePropertyOwnerAndAppointments,
   fetchCrmData,
   getCrmErrorMessage,
+  uploadPropertyMedia,
   updateAppointmentRecord,
   updateDemandClient,
   updatePropertyOwner,
@@ -18,31 +20,58 @@ import { isSupabaseConfigured, supabase } from './supabaseClient'
 
 type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments'
 export type ClientKind = 'owner' | 'seeker' | 'general'
+export type MediaKind = 'image' | 'video' | 'file'
 
 export type OwnerStatus = 'جديد' | 'جارى المتابعة' | 'جاهز للعرض' | 'تم التسويق' | 'مؤجل'
 export type SeekerStatus = 'جديد' | 'مهتم' | 'تم الترشيح' | 'جارى التفاوض' | 'تم الإغلاق' | 'مؤجل'
 export type AppointmentStatus = 'مؤكد' | 'مبدئي' | 'تم' | 'ملغي'
 
+export interface PropertyMedia {
+  id: string
+  ownerId: string
+  createdAt: string
+  fileName: string
+  fileType: string
+  fileSize: number
+  mediaKind: MediaKind
+  storagePath: string
+  publicUrl: string
+}
+
 export interface PropertyOwner {
   id: string
   createdAt: string
+  propertyCode: string
   ownerName: string
   phone: string
   whatsapp: string
   propertyType: string
   listingIntent: string
+  buildingName: string
+  unitNumber: string
   city: string
   district: string
   address: string
   price: string
   area: string
   bedrooms: string
+  bathrooms: string
+  receptionRooms: string
   floor: string
   finishing: string
+  furnishing: string
+  viewDescription: string
+  licenseStatus: string
+  deliveryDate: string
+  paymentPlan: string
+  amenities: string
+  mapUrl: string
+  virtualTourUrl: string
   availability: string
   status: OwnerStatus
   source: string
   notes: string
+  media: PropertyMedia[]
 }
 
 export interface DemandClient {
@@ -79,7 +108,7 @@ export interface Appointment {
   notes: string
 }
 
-export type OwnerForm = Omit<PropertyOwner, 'id' | 'createdAt'>
+export type OwnerForm = Omit<PropertyOwner, 'id' | 'createdAt' | 'media'>
 export type SeekerForm = Omit<DemandClient, 'id' | 'createdAt'>
 export type AppointmentForm = Omit<Appointment, 'id' | 'createdAt' | 'durationMinutes'> & {
   durationMinutes: string
@@ -92,19 +121,32 @@ const APPOINTMENT_STATUSES: AppointmentStatus[] = ['مؤكد', 'مبدئي', 'ت
 const APPOINTMENT_TYPES = ['مكالمة', 'معاينة', 'متابعة', 'توقيع عقد', 'تحصيل', 'مقابلة']
 
 const emptyOwnerForm: OwnerForm = {
+  propertyCode: '',
   ownerName: '',
   phone: '',
   whatsapp: '',
   propertyType: 'شقة',
   listingIntent: 'بيع',
+  buildingName: '',
+  unitNumber: '',
   city: '',
   district: '',
   address: '',
   price: '',
   area: '',
   bedrooms: '',
+  bathrooms: '',
+  receptionRooms: '',
   floor: '',
   finishing: '',
+  furnishing: '',
+  viewDescription: '',
+  licenseStatus: '',
+  deliveryDate: '',
+  paymentPlan: '',
+  amenities: '',
+  mapUrl: '',
+  virtualTourUrl: '',
   availability: '',
   status: 'جديد',
   source: '',
@@ -207,21 +249,51 @@ function clientKindLabel(kind: ClientKind) {
   return 'عام'
 }
 
+function phoneHref(phone: string) {
+  const compactPhone = phone.replace(/[^\d+]/g, '')
+  return compactPhone ? 'tel:' + compactPhone : undefined
+}
+
+function whatsappHref(phone: string) {
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  if (digits.startsWith('0')) digits = `20${digits.slice(1)}`
+  return digits ? `https://wa.me/${digits}` : undefined
+}
+
+function fileSizeLabel(size: number) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
 function ownerToForm(owner: PropertyOwner): OwnerForm {
   return {
+    propertyCode: owner.propertyCode,
     ownerName: owner.ownerName,
     phone: owner.phone,
     whatsapp: owner.whatsapp,
     propertyType: owner.propertyType,
     listingIntent: owner.listingIntent,
+    buildingName: owner.buildingName,
+    unitNumber: owner.unitNumber,
     city: owner.city,
     district: owner.district,
     address: owner.address,
     price: owner.price,
     area: owner.area,
     bedrooms: owner.bedrooms,
+    bathrooms: owner.bathrooms,
+    receptionRooms: owner.receptionRooms,
     floor: owner.floor,
     finishing: owner.finishing,
+    furnishing: owner.furnishing,
+    viewDescription: owner.viewDescription,
+    licenseStatus: owner.licenseStatus,
+    deliveryDate: owner.deliveryDate,
+    paymentPlan: owner.paymentPlan,
+    amenities: owner.amenities,
+    mapUrl: owner.mapUrl,
+    virtualTourUrl: owner.virtualTourUrl,
     availability: owner.availability,
     status: owner.status,
     source: owner.source,
@@ -269,7 +341,9 @@ function App() {
   const [seekers, setSeekers] = useState<DemandClient[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [initialClock] = useState(() => ({ today: toDateInputValue(), now: Date.now() }))
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
   const [ownerForm, setOwnerForm] = useState<OwnerForm>({ ...emptyOwnerForm })
+  const [ownerFiles, setOwnerFiles] = useState<File[]>([])
   const [seekerForm, setSeekerForm] = useState<SeekerForm>({ ...emptySeekerForm })
   const [appointmentForm, setAppointmentForm] = useState<AppointmentForm>(() => makeEmptyAppointmentForm())
   const [editingOwnerId, setEditingOwnerId] = useState<string | null>(null)
@@ -286,6 +360,11 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (!supabase) {
@@ -342,7 +421,7 @@ function App() {
   }, [session])
 
   const today = initialClock.today
-  const now = initialClock.now
+  const now = currentTime
 
   const liveAppointments = appointments.filter((appointment) => isLiveAppointment(appointment.status))
   const todaysAppointments = liveAppointments
@@ -352,6 +431,9 @@ function App() {
   const upcomingAppointments = liveAppointments
     .filter((appointment) => appointmentEnd(appointment) >= now)
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))
+  const dueAppointment = liveAppointments
+    .filter((appointment) => appointmentStart(appointment) <= now)
+    .sort((first, second) => appointmentStart(first) - appointmentStart(second))[0]
 
   const conflictGroups = appointments.filter((appointment) => findAppointmentConflicts(appointment, appointments).length > 0)
   const currentAppointmentConflicts = findAppointmentConflicts(
@@ -389,6 +471,10 @@ function App() {
     setOwnerForm((current) => ({ ...current, [field]: value }))
   }
 
+  const updateOwnerFiles = (files: FileList | null) => {
+    setOwnerFiles(files ? Array.from(files) : [])
+  }
+
   const updateSeekerForm = (field: keyof SeekerForm, value: string) => {
     setSeekerForm((current) => ({ ...current, [field]: value }))
   }
@@ -399,6 +485,7 @@ function App() {
 
   const resetOwnerForm = () => {
     setOwnerForm({ ...emptyOwnerForm })
+    setOwnerFiles([])
     setEditingOwnerId(null)
   }
 
@@ -450,10 +537,14 @@ function App() {
     try {
       if (editingOwnerId) {
         const savedOwner = await updatePropertyOwner(editingOwnerId, ownerForm)
-        setOwners((current) => current.map((owner) => (owner.id === editingOwnerId ? savedOwner : owner)))
+        const uploadedMedia = await uploadPropertyMedia(savedOwner.id, ownerFiles)
+        setOwners((current) => current.map((owner) => (
+          owner.id === editingOwnerId ? { ...savedOwner, media: [...uploadedMedia, ...owner.media] } : owner
+        )))
       } else {
         const savedOwner = await createPropertyOwner(ownerForm)
-        setOwners((current) => [savedOwner, ...current])
+        const uploadedMedia = await uploadPropertyMedia(savedOwner.id, ownerFiles)
+        setOwners((current) => [{ ...savedOwner, media: uploadedMedia }, ...current])
       }
 
       resetOwnerForm()
@@ -551,6 +642,24 @@ function App() {
     }
   }
 
+  const deleteOwnerMedia = async (media: PropertyMedia) => {
+    if (!window.confirm('هل تريد حذف هذا الملف من العقار؟')) return
+
+    setIsSaving(true)
+    setStatusMessage('')
+
+    try {
+      await deletePropertyMediaRecord(media)
+      setOwners((current) => current.map((owner) => (
+        owner.id === media.ownerId ? { ...owner, media: owner.media.filter((item) => item.id !== media.id) } : owner
+      )))
+    } catch (error) {
+      setStatusMessage(getCrmErrorMessage(error))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const deleteSeeker = async (id: string) => {
     if (window.confirm('هل تريد حذف بيانات هذا العميل؟')) {
       setIsSaving(true)
@@ -581,6 +690,20 @@ function App() {
       } finally {
         setIsSaving(false)
       }
+    }
+  }
+
+  const completeAppointment = async (appointment: Appointment) => {
+    setIsSaving(true)
+    setStatusMessage('')
+
+    try {
+      const savedAppointment = await updateAppointmentRecord(appointment.id, appointmentToForm({ ...appointment, status: 'تم' }))
+      setAppointments((current) => current.map((item) => (item.id === appointment.id ? savedAppointment : item)))
+    } catch (error) {
+      setStatusMessage(getCrmErrorMessage(error))
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -725,6 +848,27 @@ function App() {
         {statusMessage && <strong className="danger-text">{statusMessage}</strong>}
       </div>
 
+      {dueAppointment && (
+        <div className="reminder-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="appointment-reminder-title">
+          <section className="reminder-card">
+            <p className="eyebrow">تنبيه موعد الآن</p>
+            <h2 id="appointment-reminder-title">{dueAppointment.title || dueAppointment.appointmentType}</h2>
+            <p>{dueAppointment.clientName || 'بدون عميل'} - {formatDate(dueAppointment.date)} الساعة {dueAppointment.time}</p>
+            <div className="meta-line">
+              <span>{dueAppointment.location || 'مكان غير محدد'}</span>
+              <span>{readDurationMinutes(dueAppointment.durationMinutes)} دقيقة</span>
+              <span>{dueAppointment.phone}</span>
+            </div>
+            <div className="row-actions">
+              {phoneHref(dueAppointment.phone) && <a className="primary-action" href={phoneHref(dueAppointment.phone)}>اتصال</a>}
+              {whatsappHref(dueAppointment.phone) && <a className="text-action" href={whatsappHref(dueAppointment.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+              <button type="button" className="secondary-action" onClick={() => editAppointment(dueAppointment)}>تعديل الموعد</button>
+              <button type="button" className="primary-action" onClick={() => completeAppointment(dueAppointment)} disabled={isSaving}>تم</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <nav className="section-tabs" aria-label="أقسام النظام">
         {[
           ['dashboard', 'لوحة اليوم'],
@@ -866,6 +1010,10 @@ function App() {
                   <input inputMode="tel" value={ownerForm.whatsapp} onChange={(event) => updateOwnerForm('whatsapp', event.target.value)} />
                 </label>
                 <label>
+                  كود العقار
+                  <input value={ownerForm.propertyCode} onChange={(event) => updateOwnerForm('propertyCode', event.target.value)} />
+                </label>
+                <label>
                   نوع العقار
                   <select value={ownerForm.propertyType} onChange={(event) => updateOwnerForm('propertyType', event.target.value)}>
                     {PROPERTY_TYPES.map((type) => <option key={type}>{type}</option>)}
@@ -878,6 +1026,14 @@ function App() {
                     <option>إيجار</option>
                     <option>بيع أو إيجار</option>
                   </select>
+                </label>
+                <label>
+                  اسم الكمبوند/العمارة
+                  <input value={ownerForm.buildingName} onChange={(event) => updateOwnerForm('buildingName', event.target.value)} />
+                </label>
+                <label>
+                  رقم الوحدة
+                  <input value={ownerForm.unitNumber} onChange={(event) => updateOwnerForm('unitNumber', event.target.value)} />
                 </label>
                 <label>
                   المدينة
@@ -904,12 +1060,52 @@ function App() {
                   <input value={ownerForm.bedrooms} onChange={(event) => updateOwnerForm('bedrooms', event.target.value)} />
                 </label>
                 <label>
+                  الحمامات
+                  <input value={ownerForm.bathrooms} onChange={(event) => updateOwnerForm('bathrooms', event.target.value)} />
+                </label>
+                <label>
+                  الريسبشن/الصالات
+                  <input value={ownerForm.receptionRooms} onChange={(event) => updateOwnerForm('receptionRooms', event.target.value)} />
+                </label>
+                <label>
                   الدور
                   <input value={ownerForm.floor} onChange={(event) => updateOwnerForm('floor', event.target.value)} />
                 </label>
                 <label>
                   التشطيب
                   <input value={ownerForm.finishing} onChange={(event) => updateOwnerForm('finishing', event.target.value)} />
+                </label>
+                <label>
+                  الفرش
+                  <input value={ownerForm.furnishing} onChange={(event) => updateOwnerForm('furnishing', event.target.value)} />
+                </label>
+                <label>
+                  الواجهة/الفيو
+                  <input value={ownerForm.viewDescription} onChange={(event) => updateOwnerForm('viewDescription', event.target.value)} />
+                </label>
+                <label>
+                  موقف الترخيص/العقد
+                  <input value={ownerForm.licenseStatus} onChange={(event) => updateOwnerForm('licenseStatus', event.target.value)} />
+                </label>
+                <label>
+                  تاريخ التسليم
+                  <input value={ownerForm.deliveryDate} onChange={(event) => updateOwnerForm('deliveryDate', event.target.value)} />
+                </label>
+                <label className="wide-field">
+                  طريقة الدفع/التقسيط
+                  <input value={ownerForm.paymentPlan} onChange={(event) => updateOwnerForm('paymentPlan', event.target.value)} />
+                </label>
+                <label className="wide-field">
+                  الخدمات والمميزات
+                  <textarea value={ownerForm.amenities} onChange={(event) => updateOwnerForm('amenities', event.target.value)} />
+                </label>
+                <label>
+                  رابط الموقع على الخريطة
+                  <input inputMode="url" value={ownerForm.mapUrl} onChange={(event) => updateOwnerForm('mapUrl', event.target.value)} />
+                </label>
+                <label>
+                  رابط جولة أو فيديو خارجي
+                  <input inputMode="url" value={ownerForm.virtualTourUrl} onChange={(event) => updateOwnerForm('virtualTourUrl', event.target.value)} />
                 </label>
                 <label>
                   الإتاحة
@@ -929,6 +1125,18 @@ function App() {
                   ملاحظات
                   <textarea value={ownerForm.notes} onChange={(event) => updateOwnerForm('notes', event.target.value)} />
                 </label>
+                <label className="wide-field">
+                  صور وفيديوهات العقار
+                  <input type="file" multiple accept="image/*,video/*" onChange={(event) => updateOwnerFiles(event.target.files)} />
+                  <span className="field-hint">يمكن اختيار أكثر من صورة أو فيديو من الكمبيوتر أو الموبايل، بحد 100MB للملف.</span>
+                </label>
+                {ownerFiles.length > 0 && (
+                  <div className="selected-files wide-field">
+                    {ownerFiles.map((file) => (
+                      <span key={`${file.name}-${file.size}`}>{file.name} - {fileSizeLabel(file.size)}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="form-actions">
                 <button type="submit" className="primary-action" disabled={isSaving}>{editingOwnerId ? 'حفظ التعديل' : 'إضافة المالك'}</button>
@@ -951,12 +1159,51 @@ function App() {
                       <h3>{owner.ownerName}</h3>
                       <p>{owner.propertyType} {owner.listingIntent} - {owner.city || 'مدينة غير محددة'} - {owner.district || 'منطقة غير محددة'}</p>
                       <div className="meta-line">
+                        {owner.propertyCode && <span>كود {owner.propertyCode}</span>}
                         <span>{owner.phone}</span>
                         <span>{owner.price || 'سعر غير محدد'}</span>
+                        <span>{owner.area || 'مساحة غير محددة'}</span>
+                        {owner.bedrooms && <span>{owner.bedrooms} غرف</span>}
+                        {owner.bathrooms && <span>{owner.bathrooms} حمام</span>}
                         <span>أضيف {formatDateTime(owner.createdAt)}</span>
                       </div>
+                      <div className="property-detail-grid">
+                        {owner.buildingName && <span>المبنى: {owner.buildingName}</span>}
+                        {owner.unitNumber && <span>الوحدة: {owner.unitNumber}</span>}
+                        {owner.floor && <span>الدور: {owner.floor}</span>}
+                        {owner.finishing && <span>التشطيب: {owner.finishing}</span>}
+                        {owner.furnishing && <span>الفرش: {owner.furnishing}</span>}
+                        {owner.viewDescription && <span>الفيو: {owner.viewDescription}</span>}
+                        {owner.licenseStatus && <span>الترخيص/العقد: {owner.licenseStatus}</span>}
+                        {owner.deliveryDate && <span>التسليم: {owner.deliveryDate}</span>}
+                        {owner.paymentPlan && <span>الدفع: {owner.paymentPlan}</span>}
+                        {owner.amenities && <span>المميزات: {owner.amenities}</span>}
+                      </div>
+                      {(owner.mapUrl || owner.virtualTourUrl) && (
+                        <div className="link-line">
+                          {owner.mapUrl && <a href={owner.mapUrl} target="_blank" rel="noreferrer">فتح الخريطة</a>}
+                          {owner.virtualTourUrl && <a href={owner.virtualTourUrl} target="_blank" rel="noreferrer">فتح الجولة/الفيديو</a>}
+                        </div>
+                      )}
+                      {owner.media.length > 0 && (
+                        <div className="media-gallery">
+                          {owner.media.map((media) => (
+                            <div className="media-card" key={media.id}>
+                              {media.mediaKind === 'image' && <img src={media.publicUrl} alt={media.fileName} loading="lazy" />}
+                              {media.mediaKind === 'video' && <video src={media.publicUrl} controls preload="metadata" />}
+                              {media.mediaKind === 'file' && <div className="file-tile">{media.fileName}</div>}
+                              <div className="media-card-actions">
+                                <a href={media.publicUrl} download={media.fileName} target="_blank" rel="noreferrer">تحميل</a>
+                                <button type="button" onClick={() => deleteOwnerMedia(media)}>حذف</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="row-actions">
+                      {phoneHref(owner.phone) && <a className="text-action" href={phoneHref(owner.phone)}>اتصال</a>}
+                      {whatsappHref(owner.whatsapp || owner.phone) && <a className="text-action" href={whatsappHref(owner.whatsapp || owner.phone)} target="_blank" rel="noreferrer">واتساب</a>}
                       <button type="button" className="text-action" onClick={() => addAppointmentForOwner(owner)}>ميعاد</button>
                       <button type="button" className="text-action" onClick={() => editOwner(owner)}>تعديل</button>
                       <button type="button" className="danger-action" onClick={() => deleteOwner(owner.id)}>حذف</button>
@@ -1064,6 +1311,8 @@ function App() {
                       </div>
                     </div>
                     <div className="row-actions">
+                      {phoneHref(seeker.phone) && <a className="text-action" href={phoneHref(seeker.phone)}>اتصال</a>}
+                      {whatsappHref(seeker.phone) && <a className="text-action" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">واتساب</a>}
                       <button type="button" className="text-action" onClick={() => addAppointmentForSeeker(seeker)}>ميعاد</button>
                       <button type="button" className="text-action" onClick={() => editSeeker(seeker)}>تعديل</button>
                       <button type="button" className="danger-action" onClick={() => deleteSeeker(seeker.id)}>حذف</button>
@@ -1172,6 +1421,9 @@ function App() {
                         {conflicts.length > 0 && <strong className="inline-warning">يوجد تعارض مع {conflicts.length} موعد</strong>}
                       </div>
                       <div className="row-actions">
+                        {phoneHref(appointment.phone) && <a className="text-action" href={phoneHref(appointment.phone)}>اتصال</a>}
+                        {whatsappHref(appointment.phone) && <a className="text-action" href={whatsappHref(appointment.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+                        {isLiveAppointment(appointment.status) && <button type="button" className="primary-action" onClick={() => completeAppointment(appointment)}>تم</button>}
                         <button type="button" className="text-action" onClick={() => editAppointment(appointment)}>تعديل</button>
                         <button type="button" className="danger-action" onClick={() => deleteAppointment(appointment.id)}>حذف</button>
                       </div>
@@ -1188,3 +1440,5 @@ function App() {
 }
 
 export default App
+
+

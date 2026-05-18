@@ -140,6 +140,7 @@ textarea:focus-visible {
   justify-content: center;
   min-height: 42px;
   padding: 10px 16px;
+  text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
@@ -234,6 +235,42 @@ textarea:focus-visible {
 .sync-banner.danger {
   background: var(--red-soft);
   border-color: rgba(189, 74, 58, 0.22);
+}
+
+.reminder-backdrop {
+  align-items: end;
+  background: rgba(22, 28, 26, 0.38);
+  display: grid;
+  inset: 0;
+  padding: 16px;
+  position: fixed;
+  z-index: 30;
+}
+
+.reminder-card {
+  background: #ffffff;
+  border: 1px solid rgba(40, 117, 104, 0.24);
+  border-radius: 8px;
+  box-shadow: 0 28px 80px rgba(22, 28, 26, 0.26);
+  display: grid;
+  gap: 12px;
+  margin: 0 auto;
+  max-width: 620px;
+  padding: 20px;
+  width: min(100%, 620px);
+}
+
+.reminder-card h2 {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 28px;
+  line-height: 1.18;
+  margin: 0;
+}
+
+.reminder-card p {
+  color: var(--muted);
+  margin: 0;
 }
 
 main {
@@ -446,6 +483,102 @@ textarea {
   resize: vertical;
 }
 
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.selected-files,
+.property-detail-grid,
+.link-line,
+.media-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selected-files span,
+.property-detail-grid span,
+.link-line a {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+.property-detail-grid,
+.link-line,
+.media-gallery {
+  margin-top: 12px;
+}
+
+.link-line a {
+  color: var(--blue);
+}
+
+.media-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.media-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.media-card img,
+.media-card video,
+.file-tile {
+  aspect-ratio: 4 / 3;
+  background: var(--surface);
+  border-radius: 7px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.file-tile {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 10px;
+  text-align: center;
+}
+
+.media-card-actions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.media-card-actions a,
+.media-card-actions button {
+  background: var(--green-soft);
+  border-radius: 7px;
+  color: var(--green-dark);
+  font-weight: 900;
+  min-height: 36px;
+  padding: 8px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.media-card-actions button {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .records-area {
   min-width: 0;
 }
@@ -592,8 +725,17 @@ textarea {
   }
 
   .row-actions button,
+  .row-actions a,
   .header-actions button,
   .form-actions button {
     flex: 1 1 140px;
+  }
+
+  .media-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reminder-backdrop {
+    padding: 10px;
   }
 }
