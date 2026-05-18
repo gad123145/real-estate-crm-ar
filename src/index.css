@@ -1,0 +1,53 @@
+:root {
+  --ink: #20251f;
+  --muted: #65706a;
+  --muted-strong: #47544d;
+  --surface: #fbfaf4;
+  --paper: #fffef8;
+  --line: #e1ded0;
+  --line-strong: #cdc8b8;
+  --green: #287568;
+  --green-dark: #174b43;
+  --green-soft: #e7f2ee;
+  --blue: #315f93;
+  --blue-soft: #e7eef7;
+  --amber: #c98a32;
+  --amber-soft: #f8ecd7;
+  --red: #bd4a3a;
+  --red-soft: #f8e6e2;
+  --display: 'Aptos Display', 'Noto Kufi Arabic', 'IBM Plex Sans Arabic', sans-serif;
+  --body: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Tahoma', sans-serif;
+  color: var(--ink);
+  font: 16px/1.65 var(--body);
+  letter-spacing: 0;
+  background:
+    linear-gradient(135deg, rgba(40, 117, 104, 0.09), transparent 28%),
+    linear-gradient(45deg, rgba(201, 138, 50, 0.13), transparent 32%),
+    repeating-linear-gradient(90deg, rgba(32, 37, 31, 0.035) 0 1px, transparent 1px 76px),
+    var(--paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  direction: rtl;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
