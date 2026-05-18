@@ -1,6 +1,18 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import JSZip from 'jszip'
+import {
+  askCrmAssistant,
+  defaultAiSettings,
+  extractCrmForm,
+  fetchAiModels,
+  rankCrmRecords,
+  type AiFormTarget,
+  type AiModelOption,
+  type AiProvider,
+  type AiSearchResult,
+  type AiSettings,
+} from './aiAssistant'
 import './App.css'
 import {
   createAppointmentRecord,
@@ -19,7 +31,7 @@ import {
 } from './supabaseData'
 import { isSupabaseConfigured, supabase } from './supabaseClient'
 
-type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail'
+type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail' | 'ai'
 export type ClientKind = 'owner' | 'seeker' | 'general'
 export type MediaKind = 'image' | 'video' | 'file'
 
@@ -120,6 +132,22 @@ const OWNER_STATUSES: OwnerStatus[] = ['جديد', 'جارى المتابعة', 
 const SEEKER_STATUSES: SeekerStatus[] = ['جديد', 'مهتم', 'تم الترشيح', 'جارى التفاوض', 'تم الإغلاق', 'مؤجل']
 const APPOINTMENT_STATUSES: AppointmentStatus[] = ['مؤكد', 'مبدئي', 'تم', 'ملغي']
 const APPOINTMENT_TYPES = ['مكالمة', 'معاينة', 'متابعة', 'توقيع عقد', 'تحصيل', 'مقابلة']
+const AI_SETTINGS_STORAGE_KEY = 'real-estate-crm-ai-settings'
+const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
+  gemini: 'Gemini',
+  openrouter: 'OpenRouter',
+  custom: 'OpenAI متوافق',
+}
+const AI_TARGET_LABELS: Record<AiFormTarget, string> = {
+  owner: 'مالك وعقار',
+  seeker: 'عميل طالب',
+  appointment: 'موعد',
+}
+const SEARCH_KIND_LABELS: Record<AiSearchResult['kind'], string> = {
+  owner: 'عقار مالك',
+  seeker: 'طلب عميل',
+  appointment: 'موعد',
+}
 
 const emptyOwnerForm: OwnerForm = {
   propertyCode: '',
@@ -271,6 +299,53 @@ function safeDownloadName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'property'
 }
 
+function isAiProvider(value: unknown): value is AiProvider {
+  return value === 'gemini' || value === 'openrouter' || value === 'custom'
+}
+
+function readSavedAiSettings(): AiSettings {
+  try {
+    const stored = localStorage.getItem(AI_SETTINGS_STORAGE_KEY)
+    if (!stored) return { ...defaultAiSettings }
+    const parsed = JSON.parse(stored) as Partial<AiSettings>
+    return {
+      ...defaultAiSettings,
+      ...parsed,
+      provider: isAiProvider(parsed.provider) ? parsed.provider : defaultAiSettings.provider,
+    }
+  } catch {
+    return { ...defaultAiSettings }
+  }
+}
+
+function aiValue(data: Record<string, string>, key: string, fallback = '') {
+  return data[key]?.trim() || fallback
+}
+
+function normalizeArabicChoice(value: string) {
+  return value.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim()
+}
+
+function pickOption<T extends string>(value: string, options: readonly T[], fallback: T) {
+  const normalizedValue = normalizeArabicChoice(value)
+  return options.find((option) => {
+    const normalizedOption = normalizeArabicChoice(option)
+    return normalizedValue === normalizedOption || normalizedValue.includes(normalizedOption) || normalizedOption.includes(normalizedValue)
+  }) ?? fallback
+}
+
+function normalizeDateInput(value: string, fallback: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : fallback
+}
+
+function normalizeTimeInput(value: string, fallback = '12:00') {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return fallback
+  const hour = Math.min(23, Math.max(0, Number(match[1]))).toString().padStart(2, '0')
+  const minute = Math.min(59, Math.max(0, Number(match[2]))).toString().padStart(2, '0')
+  return `${hour}:${minute}`
+}
+
 function ownerToForm(owner: PropertyOwner): OwnerForm {
   return {
     propertyCode: owner.propertyCode,
@@ -369,6 +444,16 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [aiSettings, setAiSettings] = useState<AiSettings>(() => readSavedAiSettings())
+  const [aiModels, setAiModels] = useState<AiModelOption[]>([])
+  const [aiTarget, setAiTarget] = useState<AiFormTarget>('owner')
+  const [aiInput, setAiInput] = useState('')
+  const [aiFiles, setAiFiles] = useState<File[]>([])
+  const [aiQuestion, setAiQuestion] = useState('')
+  const [aiAnswer, setAiAnswer] = useState('')
+  const [aiResults, setAiResults] = useState<AiSearchResult[]>([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiStatus, setAiStatus] = useState('')
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000)
@@ -463,6 +548,12 @@ function App() {
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))
   const selectedOwner = owners.find((owner) => owner.id === selectedOwnerId) ?? null
   const selectedCoverMedia = selectedOwner?.media.find((media) => media.mediaKind === 'image') ?? selectedOwner?.media[0]
+  const aiContext = useMemo(() => ({ owners, seekers, appointments }), [owners, seekers, appointments])
+  const visibleAiResults = aiResults.filter((result) => {
+    if (result.kind === 'owner') return owners.some((owner) => owner.id === result.id)
+    if (result.kind === 'seeker') return seekers.some((seeker) => seeker.id === result.id)
+    return appointments.some((appointment) => appointment.id === result.id)
+  })
 
   const linkedClientOptions = useMemo(
     () => [
@@ -500,6 +591,36 @@ function App() {
     setAppointmentForm((current) => ({ ...current, [field]: value }))
   }
 
+  const updateAiSettings = (field: keyof AiSettings, value: string) => {
+    setAiSettings((current) => ({ ...current, [field]: field === 'provider' && isAiProvider(value) ? value : value }))
+  }
+
+  const updateAiFiles = (files: FileList | null) => {
+    setAiFiles(files ? Array.from(files) : [])
+  }
+
+  const saveAiSettings = async () => {
+    localStorage.setItem(AI_SETTINGS_STORAGE_KEY, JSON.stringify(aiSettings))
+    setAiStatus('تم حفظ إعدادات الذكاء الصناعي على هذا الجهاز.')
+    if (aiSettings.apiKey.trim()) await loadAiModels()
+  }
+
+  const loadAiModels = async () => {
+    setAiLoading(true)
+    setAiStatus('')
+
+    try {
+      const models = await fetchAiModels(aiSettings)
+      setAiModels(models)
+      if (!aiSettings.model && models[0]) setAiSettings((current) => ({ ...current, model: models[0].id }))
+      setAiStatus(`تم جلب ${numberFormatter.format(models.length)} نموذج.`)
+    } catch (error) {
+      setAiStatus(getCrmErrorMessage(error))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const resetOwnerForm = () => {
     setOwnerForm({ ...emptyOwnerForm })
     setOwnerFiles([])
@@ -514,6 +635,149 @@ function App() {
   const resetAppointmentForm = () => {
     setAppointmentForm(makeEmptyAppointmentForm())
     setEditingAppointmentId(null)
+  }
+
+  const applyAiOwner = (data: Record<string, string>) => {
+    const nextOwner: OwnerForm = {
+      propertyCode: aiValue(data, 'propertyCode'),
+      ownerName: aiValue(data, 'ownerName'),
+      phone: aiValue(data, 'phone'),
+      whatsapp: aiValue(data, 'whatsapp'),
+      propertyType: pickOption(aiValue(data, 'propertyType'), PROPERTY_TYPES, emptyOwnerForm.propertyType),
+      listingIntent: pickOption(aiValue(data, 'listingIntent'), ['بيع', 'إيجار', 'بيع أو إيجار'], emptyOwnerForm.listingIntent),
+      buildingName: aiValue(data, 'buildingName'),
+      unitNumber: aiValue(data, 'unitNumber'),
+      city: aiValue(data, 'city'),
+      district: aiValue(data, 'district'),
+      address: aiValue(data, 'address'),
+      price: aiValue(data, 'price'),
+      area: aiValue(data, 'area'),
+      bedrooms: aiValue(data, 'bedrooms'),
+      bathrooms: aiValue(data, 'bathrooms'),
+      receptionRooms: aiValue(data, 'receptionRooms'),
+      floor: aiValue(data, 'floor'),
+      finishing: aiValue(data, 'finishing'),
+      furnishing: aiValue(data, 'furnishing'),
+      viewDescription: aiValue(data, 'viewDescription'),
+      licenseStatus: aiValue(data, 'licenseStatus'),
+      deliveryDate: aiValue(data, 'deliveryDate'),
+      paymentPlan: aiValue(data, 'paymentPlan'),
+      amenities: aiValue(data, 'amenities'),
+      mapUrl: aiValue(data, 'mapUrl'),
+      virtualTourUrl: aiValue(data, 'virtualTourUrl'),
+      availability: aiValue(data, 'availability'),
+      status: pickOption(aiValue(data, 'status'), OWNER_STATUSES, emptyOwnerForm.status),
+      source: aiValue(data, 'source', 'ذكاء صناعي'),
+      notes: aiValue(data, 'notes'),
+    }
+
+    setOwnerForm(nextOwner)
+    setOwnerFiles(aiFiles)
+    setEditingOwnerId(null)
+    setActiveSection('owners')
+    setStatusMessage('تم ملء نموذج المالك والعقار. راجع البيانات ثم اضغط إضافة المالك.')
+  }
+
+  const applyAiSeeker = (data: Record<string, string>) => {
+    const nextSeeker: SeekerForm = {
+      name: aiValue(data, 'name'),
+      phone: aiValue(data, 'phone'),
+      requestIntent: pickOption(aiValue(data, 'requestIntent'), ['شراء', 'إيجار', 'شراء أو إيجار'], emptySeekerForm.requestIntent),
+      propertyType: pickOption(aiValue(data, 'propertyType'), PROPERTY_TYPES, emptySeekerForm.propertyType),
+      city: aiValue(data, 'city'),
+      preferredAreas: aiValue(data, 'preferredAreas'),
+      budget: aiValue(data, 'budget'),
+      paymentMethod: aiValue(data, 'paymentMethod'),
+      urgency: pickOption(aiValue(data, 'urgency'), ['عادي', 'قريب', 'عاجل'], emptySeekerForm.urgency),
+      status: pickOption(aiValue(data, 'status'), SEEKER_STATUSES, emptySeekerForm.status),
+      details: aiValue(data, 'details', aiInput.trim()),
+      notes: aiValue(data, 'notes'),
+    }
+
+    setSeekerForm(nextSeeker)
+    setEditingSeekerId(null)
+    setActiveSection('seekers')
+    setStatusMessage('تم ملء نموذج العميل الطالب. راجع البيانات ثم اضغط إضافة العميل.')
+  }
+
+  const applyAiAppointment = (data: Record<string, string>) => {
+    const clientKind = pickOption(aiValue(data, 'clientKind'), ['owner', 'seeker', 'general'], 'general')
+    const nextAppointment: AppointmentForm = {
+      title: aiValue(data, 'title'),
+      appointmentType: pickOption(aiValue(data, 'appointmentType'), APPOINTMENT_TYPES, 'معاينة'),
+      clientKind,
+      linkedClientId: aiValue(data, 'linkedClientId'),
+      clientName: aiValue(data, 'clientName'),
+      phone: aiValue(data, 'phone'),
+      date: normalizeDateInput(aiValue(data, 'date'), today),
+      time: normalizeTimeInput(aiValue(data, 'time')),
+      durationMinutes: aiValue(data, 'durationMinutes', '60'),
+      location: aiValue(data, 'location'),
+      status: pickOption(aiValue(data, 'status'), APPOINTMENT_STATUSES, 'مؤكد'),
+      notes: aiValue(data, 'notes'),
+    }
+
+    setAppointmentForm(nextAppointment)
+    setEditingAppointmentId(null)
+    setActiveSection('appointments')
+    setStatusMessage('تم ملء نموذج الموعد. راجع التعارضات ثم اضغط إضافة الموعد.')
+  }
+
+  const fillFormWithAi = async () => {
+    setAiLoading(true)
+    setAiStatus('')
+
+    try {
+      const result = await extractCrmForm(aiSettings, aiTarget, aiInput, aiTarget === 'owner' ? aiFiles : [], today)
+      if (aiTarget === 'owner') applyAiOwner(result.data)
+      if (aiTarget === 'seeker') applyAiSeeker(result.data)
+      if (aiTarget === 'appointment') applyAiAppointment(result.data)
+      setAiStatus(result.summary)
+    } catch (error) {
+      setAiStatus(getCrmErrorMessage(error))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const askAndSearchAi = async () => {
+    setAiLoading(true)
+    setAiStatus('')
+    setAiAnswer('')
+
+    try {
+      const results = rankCrmRecords(aiQuestion, aiContext)
+      setAiResults(results)
+
+      if (aiSettings.apiKey.trim() && aiSettings.model.trim()) {
+        setAiAnswer(await askCrmAssistant(aiSettings, aiQuestion, aiContext, results))
+      } else {
+        setAiAnswer('تم تشغيل البحث المحلي. أضف مفتاح ونموذج ذكاء صناعي للحصول على رد تحليلي ودردشة أذكى.')
+      }
+    } catch (error) {
+      setAiStatus(getCrmErrorMessage(error))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const openAiSearchResult = (result: AiSearchResult) => {
+    if (result.kind === 'owner') {
+      const owner = owners.find((item) => item.id === result.id)
+      if (owner) openOwnerDetails(owner)
+      return
+    }
+
+    if (result.kind === 'seeker') {
+      const seeker = seekers.find((item) => item.id === result.id)
+      setSeekerSearch(seeker?.name || result.title)
+      setActiveSection('seekers')
+      return
+    }
+
+    const appointment = appointments.find((item) => item.id === result.id)
+    setAppointmentSearch(appointment?.title || appointment?.clientName || result.title)
+    setActiveSection('appointments')
   }
 
   const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
@@ -891,6 +1155,9 @@ function App() {
           </p>
         </div>
         <div className="header-actions" aria-label="إجراءات سريعة">
+          <button type="button" className="primary-action" onClick={() => setActiveSection('ai')}>
+            الذكاء الصناعي
+          </button>
           <button type="button" className="primary-action" onClick={() => setActiveSection('owners')}>
             إضافة مالك
           </button>
@@ -940,6 +1207,7 @@ function App() {
           ['owners', 'الملاك والعقارات'],
           ['seekers', 'طلبات العملاء'],
           ['appointments', 'المواعيد والمعاينات'],
+          ['ai', 'الذكاء الصناعي'],
         ].map(([section, label]) => (
           <button
             key={section}
@@ -1051,6 +1319,125 @@ function App() {
                 ))}
               </div>
             </section>
+          </section>
+        )}
+
+        {activeSection === 'ai' && (
+          <section className="ai-workspace" aria-label="إعدادات ومساعد الذكاء الصناعي">
+            <section className="ai-hero-panel">
+              <div>
+                <p className="eyebrow">مساعد ذكي</p>
+                <h2>اقرأ النص والصور، املأ النماذج، وابحث داخل كل بياناتك.</h2>
+              </div>
+              <div className="ai-quick-stats" aria-label="ملخص بيانات الذكاء">
+                <span>{numberFormatter.format(owners.length)} عقار</span>
+                <span>{numberFormatter.format(seekers.length)} طلب</span>
+                <span>{numberFormatter.format(appointments.length)} موعد</span>
+              </div>
+            </section>
+
+            <div className="ai-grid">
+              <section className="ai-panel">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">إعدادات الذكاء الصناعي</p>
+                  <h2>المزود والنموذج</h2>
+                </div>
+                <div className="form-grid single-grid">
+                  <label>
+                    المزود
+                    <select value={aiSettings.provider} onChange={(event) => updateAiSettings('provider', event.target.value)}>
+                      {Object.entries(AI_PROVIDER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    مفتاح API
+                    <input type="password" value={aiSettings.apiKey} onChange={(event) => updateAiSettings('apiKey', event.target.value)} placeholder="Gemini أو OpenRouter أو مفتاح متوافق" />
+                  </label>
+                  {aiSettings.provider === 'custom' && (
+                    <label>
+                      رابط المزود
+                      <input inputMode="url" value={aiSettings.customBaseUrl} onChange={(event) => updateAiSettings('customBaseUrl', event.target.value)} placeholder="https://api.openai.com/v1" />
+                    </label>
+                  )}
+                  <label>
+                    النموذج
+                    <input list="ai-model-list" value={aiSettings.model} onChange={(event) => updateAiSettings('model', event.target.value)} placeholder="اختر أو اكتب اسم النموذج" />
+                    <datalist id="ai-model-list">
+                      {aiModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                    </datalist>
+                  </label>
+                </div>
+                <div className="form-actions">
+                  <button type="button" className="primary-action" onClick={saveAiSettings}>حفظ الإعدادات</button>
+                  <button type="button" className="secondary-action" onClick={loadAiModels} disabled={aiLoading}>جلب النماذج</button>
+                </div>
+                <p className="field-hint">يتم حفظ المفتاح داخل متصفحك فقط، ولا يتم رفعه إلى قاعدة البيانات.</p>
+                {aiStatus && <div className="sync-banner ai-status">{aiStatus}</div>}
+              </section>
+
+              <section className="ai-panel ai-main-panel">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">تعبئة تلقائية</p>
+                  <h2>تحويل النص إلى سجل جاهز</h2>
+                </div>
+                <div className="ai-target-tabs" aria-label="نوع السجل المطلوب">
+                  {(Object.keys(AI_TARGET_LABELS) as AiFormTarget[]).map((target) => (
+                    <button key={target} type="button" className={aiTarget === target ? 'is-active' : ''} onClick={() => setAiTarget(target)}>
+                      {AI_TARGET_LABELS[target]}
+                    </button>
+                  ))}
+                </div>
+                <label>
+                  النص الكامل
+                  <textarea className="ai-textarea" value={aiInput} onChange={(event) => setAiInput(event.target.value)} placeholder="الصق رسالة العميل أو وصف العقار بكل التفاصيل..." />
+                </label>
+                {aiTarget === 'owner' && (
+                  <label>
+                    صور العقار
+                    <input type="file" multiple accept="image/*" onChange={(event) => updateAiFiles(event.target.files)} />
+                    <span className="field-hint">الصور المختارة هنا ستضاف تلقائيًا إلى نموذج المالك بعد التحليل.</span>
+                  </label>
+                )}
+                {aiTarget === 'owner' && aiFiles.length > 0 && (
+                  <div className="selected-files">
+                    {aiFiles.map((file) => <span key={`${file.name}-${file.size}`}>{file.name} - {fileSizeLabel(file.size)}</span>)}
+                  </div>
+                )}
+                <div className="form-actions">
+                  <button type="button" className="primary-action" onClick={fillFormWithAi} disabled={aiLoading}>
+                    {aiLoading ? 'جار التحليل...' : 'حلل واملأ النموذج'}
+                  </button>
+                  <button type="button" className="secondary-action" onClick={() => setAiInput('')}>مسح النص</button>
+                </div>
+              </section>
+
+              <section className="ai-panel ai-main-panel">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">بحث ودردشة</p>
+                  <h2>اسأل عن العقارات والعملاء والمواعيد</h2>
+                </div>
+                <label>
+                  سؤالك
+                  <textarea className="ai-question" value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="مثال: هات شقق إيجار في التجمع بسعر قريب من مليون، أو مواعيد اليوم" />
+                </label>
+                <div className="form-actions">
+                  <button type="button" className="primary-action" onClick={askAndSearchAi} disabled={aiLoading}>اسأل وابحث</button>
+                </div>
+                {aiAnswer && <div className="ai-answer">{aiAnswer}</div>}
+                <div className="ai-result-list">
+                  {visibleAiResults.map((result) => (
+                    <article className="ai-result-card" key={`${result.kind}-${result.id}`}>
+                      <span className="status-pill blue-pill">{SEARCH_KIND_LABELS[result.kind]}</span>
+                      <h3>{result.title}</h3>
+                      <p>{result.subtitle}</p>
+                      <small>{result.details}</small>
+                      <button type="button" className="text-action" onClick={() => openAiSearchResult(result)}>فتح</button>
+                    </article>
+                  ))}
+                  {aiQuestion && visibleAiResults.length === 0 && !aiLoading && <p className="empty-state">لا توجد نتائج محلية مطابقة حتى الآن.</p>}
+                </div>
+              </section>
+            </div>
           </section>
         )}
 
