@@ -42,9 +42,9 @@ npm run build
 
 ## النشر
 
-المشروع جاهز للنشر على GitHub Pages من خلال GitHub Actions. يجب ضبط متغيرات المستودع التالية قبل تشغيل النشر:
+يمكن نشر النسخة المبنية على GitHub Pages من فرع `gh-pages`. عند النشر تحت مسار مستودع GitHub Pages استخدم:
 
-```text
-VITE_SUPABASE_URL
-VITE_SUPABASE_ANON_KEY
+```powershell
+$env:VITE_BASE_PATH='/real-estate-crm-ar/'
+npm run build
 ```
