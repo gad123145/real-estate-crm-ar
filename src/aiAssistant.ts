@@ -295,11 +295,14 @@ export async function extractCrmForm(settings: AiSettings, target: AiFormTarget,
 }
 
 function normalizeArabic(value: string) {
+  const arabicDigits = '٠١٢٣٤٥٦٧٨٩'
   return value
     .toLowerCase()
     .replace(/[أإآ]/g, 'ا')
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+    .replace(/[\u064B-\u065F\u0670]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -326,10 +329,14 @@ function ownerText(owner: PropertyOwner) {
     owner.city,
     owner.district,
     owner.address,
+    owner.buildingName,
+    owner.unitNumber,
     owner.price,
     owner.area,
     owner.bedrooms,
     owner.bathrooms,
+    owner.receptionRooms,
+    owner.floor,
     owner.finishing,
     owner.furnishing,
     owner.viewDescription,
@@ -341,6 +348,7 @@ function ownerText(owner: PropertyOwner) {
     owner.status,
     owner.source,
     owner.notes,
+    ...owner.media.map((media) => media.fileName),
   ].join(' ')
 }
 
@@ -388,7 +396,16 @@ export function rankCrmRecords(query: string, context: AiCrmContext): AiSearchRe
     id: owner.id,
     title: `${owner.propertyType} ${owner.listingIntent} - ${owner.ownerName || 'مالك بدون اسم'}`,
     subtitle: [owner.city, owner.district, owner.price].filter(Boolean).join(' - ') || 'بدون عنوان رئيسي',
-    details: [owner.propertyCode && `كود ${owner.propertyCode}`, owner.area, owner.bedrooms && `${owner.bedrooms} غرف`, `${owner.media.length} وسائط`].filter(Boolean).join(' | '),
+    details: [
+      owner.propertyCode && `كود ${owner.propertyCode}`,
+      owner.area,
+      owner.floor && `الدور ${owner.floor}`,
+      owner.bedrooms && `${owner.bedrooms} غرف`,
+      owner.bathrooms && `${owner.bathrooms} حمام`,
+      owner.finishing,
+      owner.amenities,
+      `${owner.media.length} وسائط`,
+    ].filter(Boolean).join(' | '),
     score: scoreText(queryTokens, ownerText(owner)) + (wantsOwners ? 0.8 : 0),
   }))
 
@@ -418,7 +435,7 @@ export function rankCrmRecords(query: string, context: AiCrmContext): AiSearchRe
 
 function summarizeContext(context: AiCrmContext) {
   const owners = context.owners.slice(0, 40).map((owner) => (
-    `OWNER ${owner.id}: ${owner.propertyType} ${owner.listingIntent}, المالك ${owner.ownerName}, كود ${owner.propertyCode}, ${owner.city} ${owner.district}, سعر ${owner.price}, مساحة ${owner.area}, غرف ${owner.bedrooms}, حمامات ${owner.bathrooms}, مميزات ${owner.amenities}, ملاحظات ${owner.notes}`
+    `OWNER ${owner.id}: ${owner.propertyType} ${owner.listingIntent}, المالك ${owner.ownerName}, كود ${owner.propertyCode}, ${owner.city} ${owner.district}, العنوان ${owner.address}, المبنى ${owner.buildingName}, الوحدة ${owner.unitNumber}, الدور ${owner.floor}, سعر ${owner.price}, مساحة ${owner.area}, غرف ${owner.bedrooms}, حمامات ${owner.bathrooms}, ريسبشن ${owner.receptionRooms}, تشطيب ${owner.finishing}, فرش ${owner.furnishing}, فيو ${owner.viewDescription}, ترخيص ${owner.licenseStatus}, تسليم ${owner.deliveryDate}, دفع ${owner.paymentPlan}, مميزات ${owner.amenities}, حالة ${owner.status}, وسائط ${owner.media.length}, ملاحظات ${owner.notes}`
   ))
   const seekers = context.seekers.slice(0, 40).map((seeker) => (
     `SEEKER ${seeker.id}: ${seeker.name}, ${seeker.requestIntent} ${seeker.propertyType}, مناطق ${seeker.preferredAreas || seeker.city}, ميزانية ${seeker.budget}, تفاصيل ${seeker.details}`
@@ -433,6 +450,12 @@ export async function askCrmAssistant(settings: AiSettings, question: string, co
   if (!question.trim()) throw new Error('اكتب سؤالك أولًا.')
 
   const prompt = `أنت مساعد ذكي داخل CRM عقاري عربي. أجب على سؤال المستخدم اعتمادًا فقط على البيانات التالية، واذكر السجلات المناسبة بالعناوين الرئيسية بدون اختراع بيانات. إذا وجدت نتائج مشابهة وليست مطابقة فقل إنها مشابهة.
+
+نسق الإجابة بالعربية بهذا الشكل:
+ملخص: سطر قصير مباشر.
+النتائج:
+- النوع: عقار/طلب/موعد | الاسم أو العنوان | السبب المختصر | السعر/التاريخ إن وجد | اذكر ID كما هو.
+اقتراح: خطوة عملية واحدة.
 
 سؤال المستخدم:
 ${question}
