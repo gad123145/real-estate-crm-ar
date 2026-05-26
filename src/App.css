@@ -634,7 +634,9 @@ main {
 .timeline-item,
 .alert-row,
 .mini-record,
-.record-row {
+.record-row,
+.pipeline-column,
+.pipeline-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -707,6 +709,14 @@ main {
   display: grid;
   gap: 20px;
   grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+}
+
+.seekers-workspace {
+  grid-template-columns: 1fr;
+}
+
+.seekers-workspace .form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .reminder-settings-card {
@@ -987,7 +997,155 @@ textarea {
 
 .search-input {
   background: rgba(255, 255, 255, 0.88);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.pipeline-toolbar {
+  align-items: end;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pipeline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pipeline-summary span {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  padding: 7px 11px;
+}
+
+.pipeline-board {
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(6, minmax(190px, 1fr));
+  overflow-x: auto;
+  padding: 14px;
+  scroll-snap-type: x proximity;
+}
+
+.pipeline-board > .empty-state {
+  grid-column: 1 / -1;
+}
+
+.pipeline-column {
+  align-content: start;
+  background: rgba(247, 249, 246, 0.9);
+  border-color: rgba(40, 117, 104, 0.14);
+  display: grid;
+  gap: 12px;
+  min-height: 420px;
+  min-width: 0;
+  padding: 12px;
+  scroll-snap-align: start;
+}
+
+.pipeline-column-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pipeline-column-header h3 {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 20px;
+  margin: 0;
+}
+
+.pipeline-column-header span {
+  background: var(--blue-soft);
+  border-radius: 999px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  min-width: 30px;
+  padding: 5px 9px;
+  text-align: center;
+}
+
+.pipeline-card-list {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+}
+
+.pipeline-card {
+  background: #ffffff;
+  border-color: rgba(40, 50, 47, 0.1);
+  box-shadow: 0 12px 28px rgba(40, 50, 47, 0.06);
+  display: grid;
+  gap: 14px;
+  padding: 12px;
+}
+
+.pipeline-card:hover {
+  border-color: rgba(27, 95, 130, 0.22);
+  box-shadow: 0 16px 34px rgba(40, 50, 47, 0.09);
+}
+
+.pipeline-card .record-main h3 {
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.pipeline-card .meta-line span {
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.pipeline-empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+  padding: 14px;
+  text-align: center;
+}
+
+.pipeline-stage-field {
+  color: var(--muted);
+  font-size: 12px;
+  gap: 6px;
+}
+
+.pipeline-stage-field select {
+  background: var(--surface);
+  border-color: rgba(27, 95, 130, 0.18);
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 900;
+  min-height: 38px;
+  padding: 7px 10px;
+}
+
+.compact-actions {
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.compact-actions button,
+.compact-actions a {
+  font-size: 12px;
+  padding: 7px 8px;
 }
 
 .record-row {
@@ -1097,6 +1255,10 @@ textarea {
   .mini-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .seekers-workspace .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -1130,6 +1292,34 @@ textarea {
 
   .section-tabs {
     position: static;
+  }
+
+  .seekers-workspace .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pipeline-toolbar {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .pipeline-summary {
+    justify-content: start;
+  }
+
+  .pipeline-board {
+    grid-auto-columns: minmax(260px, 86vw);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    padding: 10px;
+  }
+
+  .pipeline-column {
+    min-height: 340px;
+  }
+
+  .pipeline-card {
+    padding: 11px;
   }
 
   .timeline-item,

@@ -130,6 +130,14 @@ export type AppointmentForm = Omit<Appointment, 'id' | 'createdAt' | 'durationMi
 const PROPERTY_TYPES = ['شقة', 'دوبلكس', 'بيزمنت', 'فيلا', 'تاون هاوس', 'استوديو', 'مكتب', 'محل', 'أرض', 'أخرى']
 const OWNER_STATUSES: OwnerStatus[] = ['جديد', 'جارى المتابعة', 'جاهز للعرض', 'تم التسويق', 'مؤجل']
 const SEEKER_STATUSES: SeekerStatus[] = ['جديد', 'مهتم', 'تم الترشيح', 'جارى التفاوض', 'تم الإغلاق', 'مؤجل']
+const SEEKER_PIPELINE_STAGES: Array<{ status: SeekerStatus; label: string }> = [
+  { status: 'جديد', label: 'جديد' },
+  { status: 'مهتم', label: 'مهتم' },
+  { status: 'تم الترشيح', label: 'تمت المعاينة' },
+  { status: 'جارى التفاوض', label: 'تفاوض' },
+  { status: 'تم الإغلاق', label: 'إغلاق' },
+  { status: 'مؤجل', label: 'مؤجل' },
+]
 const APPOINTMENT_STATUSES: AppointmentStatus[] = ['مؤكد', 'مبدئي', 'تم', 'ملغي']
 const APPOINTMENT_TYPES = ['مكالمة', 'معاينة', 'متابعة', 'توقيع عقد', 'تحصيل', 'مقابلة']
 const AI_SETTINGS_STORAGE_KEY = 'real-estate-crm-ai-settings'
@@ -371,6 +379,10 @@ function clientKindLabel(kind: ClientKind) {
   if (kind === 'owner') return 'مالك'
   if (kind === 'seeker') return 'طالب'
   return 'عام'
+}
+
+function seekerStatusLabel(status: SeekerStatus) {
+  return SEEKER_PIPELINE_STAGES.find((stage) => stage.status === status)?.label ?? status
 }
 
 function phoneHref(phone: string) {
@@ -734,6 +746,10 @@ function App() {
 
   const visibleOwners = owners.filter((owner) => matchesSearch(ownerSearchText(owner), ownerSearch))
   const visibleSeekers = seekers.filter((seeker) => matchesSearch(seekerSearchText(seeker), seekerSearch))
+  const seekerPipelineGroups = SEEKER_PIPELINE_STAGES.map((stage) => ({
+    ...stage,
+    seekers: visibleSeekers.filter((seeker) => seeker.status === stage.status),
+  }))
   const visibleAppointments = appointments
     .filter((appointment) => matchesSearch(appointmentSearchText(appointment), appointmentSearch))
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))
@@ -1158,6 +1174,25 @@ function App() {
     setSeekerForm(seekerToForm(seeker))
     setEditingSeekerId(seeker.id)
     setActiveSection('seekers')
+  }
+
+  const moveSeekerToStage = async (seeker: DemandClient, status: SeekerStatus) => {
+    if (seeker.status === status) return
+
+    setIsSaving(true)
+    setStatusMessage('')
+
+    try {
+      const savedSeeker = await updateDemandClient(seeker.id, { ...seekerToForm(seeker), status })
+      setSeekers((current) => current.map((item) => (item.id === seeker.id ? savedSeeker : item)))
+      if (editingSeekerId === seeker.id) {
+        setSeekerForm(seekerToForm(savedSeeker))
+      }
+    } catch (error) {
+      setStatusMessage(getCrmErrorMessage(error))
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const editAppointment = (appointment: Appointment) => {
@@ -1981,7 +2016,7 @@ function App() {
         )}
 
         {activeSection === 'seekers' && (
-          <section className="workspace-grid" aria-label="طلبات العملاء">
+          <section className="workspace-grid seekers-workspace" aria-label="طلبات العملاء">
             <form className="form-panel" onSubmit={saveSeeker}>
               <div className="section-heading">
                 <p className="eyebrow">قسم الطالبين</p>
@@ -2037,7 +2072,7 @@ function App() {
                 <label>
                   الحالة
                   <select value={seekerForm.status} onChange={(event) => updateSeekerForm('status', event.target.value as SeekerStatus)}>
-                    {SEEKER_STATUSES.map((status) => <option key={status}>{status}</option>)}
+                    {SEEKER_STATUSES.map((status) => <option key={status} value={status}>{seekerStatusLabel(status)}</option>)}
                   </select>
                 </label>
                 <label className="wide-field">
@@ -2056,33 +2091,62 @@ function App() {
             </form>
 
             <div className="records-area">
-              <div className="section-heading compact-heading">
-                <p className="eyebrow">السجلات</p>
-                <h2>طلبات الشراء والإيجار</h2>
+              <div className="pipeline-toolbar">
+                <div className="section-heading compact-heading">
+                  <p className="eyebrow">السجلات</p>
+                  <h2>مراحل متابعة العملاء</h2>
+                </div>
+                <div className="pipeline-summary" aria-label="ملخص مراحل العملاء">
+                  <span>المعروض {numberFormatter.format(visibleSeekers.length)}</span>
+                  <span>الإجمالي {numberFormatter.format(seekers.length)}</span>
+                </div>
               </div>
               <input className="search-input" placeholder="بحث باسم، رقم، منطقة، ميزانية" value={seekerSearch} onChange={(event) => setSeekerSearch(event.target.value)} />
-              <div className="record-list">
+              <div className="pipeline-board" aria-label="مراحل متابعة العميل">
                 {visibleSeekers.length === 0 && <p className="empty-state">لا توجد سجلات مطابقة.</p>}
-                {visibleSeekers.map((seeker) => (
-                  <article className="record-row" key={seeker.id}>
-                    <div className="record-main">
-                      <span className="status-pill blue-pill">{seeker.status}</span>
-                      <h3>{seeker.name}</h3>
-                      <p>{seeker.requestIntent} {seeker.propertyType} - {seeker.preferredAreas || seeker.city || 'منطقة غير محددة'}</p>
-                      <div className="meta-line">
-                        <span>{seeker.phone}</span>
-                        <span>{seeker.budget || 'ميزانية غير محددة'}</span>
-                        <span>أضيف {formatDateTime(seeker.createdAt)}</span>
-                      </div>
+                {visibleSeekers.length > 0 && seekerPipelineGroups.map((stage) => (
+                  <section className="pipeline-column" key={stage.status} aria-label={stage.label}>
+                    <div className="pipeline-column-header">
+                      <h3>{stage.label}</h3>
+                      <span>{numberFormatter.format(stage.seekers.length)}</span>
                     </div>
-                    <div className="row-actions">
-                      {phoneHref(seeker.phone) && <a className="text-action" href={phoneHref(seeker.phone)}>اتصال</a>}
-                      {whatsappHref(seeker.phone) && <a className="text-action" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">واتساب</a>}
-                      <button type="button" className="text-action" onClick={() => addAppointmentForSeeker(seeker)}>ميعاد</button>
-                      <button type="button" className="text-action" onClick={() => editSeeker(seeker)}>تعديل</button>
-                      <button type="button" className="danger-action" onClick={() => deleteSeeker(seeker.id)}>حذف</button>
+                    <div className="pipeline-card-list">
+                      {stage.seekers.length === 0 && <p className="pipeline-empty">لا يوجد عملاء</p>}
+                      {stage.seekers.map((seeker) => (
+                        <article className="pipeline-card" key={seeker.id}>
+                          <div className="record-main">
+                            <span className="status-pill blue-pill">{seekerStatusLabel(seeker.status)}</span>
+                            <h3>{seeker.name}</h3>
+                            <p>{seeker.requestIntent} {seeker.propertyType} - {seeker.preferredAreas || seeker.city || 'منطقة غير محددة'}</p>
+                            <div className="meta-line">
+                              <span>{seeker.phone}</span>
+                              <span>{seeker.budget || 'ميزانية غير محددة'}</span>
+                              <span>أضيف {formatDateTime(seeker.createdAt)}</span>
+                            </div>
+                          </div>
+                          <label className="pipeline-stage-field">
+                            المرحلة
+                            <select
+                              value={seeker.status}
+                              onChange={(event) => moveSeekerToStage(seeker, event.target.value as SeekerStatus)}
+                              disabled={isSaving}
+                            >
+                              {SEEKER_PIPELINE_STAGES.map((nextStage) => (
+                                <option key={nextStage.status} value={nextStage.status}>{nextStage.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="row-actions compact-actions">
+                            {phoneHref(seeker.phone) && <a className="text-action" href={phoneHref(seeker.phone)}>اتصال</a>}
+                            {whatsappHref(seeker.phone) && <a className="text-action" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+                            <button type="button" className="text-action" onClick={() => addAppointmentForSeeker(seeker)}>ميعاد</button>
+                            <button type="button" className="text-action" onClick={() => editSeeker(seeker)}>تعديل</button>
+                            <button type="button" className="danger-action" onClick={() => deleteSeeker(seeker.id)}>حذف</button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                  </article>
+                  </section>
                 ))}
               </div>
             </div>
