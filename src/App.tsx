@@ -599,6 +599,7 @@ function App() {
   const [editingOwnerId, setEditingOwnerId] = useState<string | null>(null)
   const [editingSeekerId, setEditingSeekerId] = useState<string | null>(null)
   const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null)
+  const [isSeekerFormOpen, setIsSeekerFormOpen] = useState(false)
   const [ownerSearch, setOwnerSearch] = useState('')
   const [seekerSearch, setSeekerSearch] = useState('')
   const [appointmentSearch, setAppointmentSearch] = useState('')
@@ -925,6 +926,7 @@ function App() {
 
     setSeekerForm(nextSeeker)
     setEditingSeekerId(null)
+    setIsSeekerFormOpen(true)
     setActiveSection('seekers')
     setStatusMessage('تم ملء نموذج العميل الطالب. راجع البيانات ثم اضغط إضافة العميل.')
   }
@@ -1080,6 +1082,7 @@ function App() {
       }
 
       resetSeekerForm()
+      setIsSeekerFormOpen(false)
     } catch (error) {
       setStatusMessage(getCrmErrorMessage(error))
     } finally {
@@ -1173,6 +1176,7 @@ function App() {
   const editSeeker = (seeker: DemandClient) => {
     setSeekerForm(seekerToForm(seeker))
     setEditingSeekerId(seeker.id)
+    setIsSeekerFormOpen(true)
     setActiveSection('seekers')
   }
 
@@ -2017,77 +2021,123 @@ function App() {
 
         {activeSection === 'seekers' && (
           <section className="workspace-grid seekers-workspace" aria-label="طلبات العملاء">
-            <form className="form-panel" onSubmit={saveSeeker}>
-              <div className="section-heading">
-                <p className="eyebrow">قسم الطالبين</p>
-                <h2>{editingSeekerId ? 'تعديل طلب عميل' : 'إضافة عميل طالب'}</h2>
+            <form className={`form-panel seeker-form-panel ${isSeekerFormOpen ? 'is-open' : 'is-collapsed'}`} onSubmit={saveSeeker}>
+              <div className="collapsible-form-header">
+                <div className="section-heading">
+                  <p className="eyebrow">قسم الطالبين</p>
+                  <h2>{editingSeekerId ? 'تعديل طلب عميل' : 'إضافة عميل طالب'}</h2>
+                </div>
+                <div className="form-toggle-actions">
+                  {!isSeekerFormOpen && (
+                    <button
+                      type="button"
+                      className="primary-action"
+                      onClick={() => {
+                        resetSeekerForm()
+                        setIsSeekerFormOpen(true)
+                      }}
+                    >
+                      إضافة عميل طالب
+                    </button>
+                  )}
+                  {isSeekerFormOpen && (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => {
+                        resetSeekerForm()
+                        setIsSeekerFormOpen(false)
+                      }}
+                    >
+                      طي النموذج
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="form-grid">
-                <label>
-                  اسم العميل
-                  <input required value={seekerForm.name} onChange={(event) => updateSeekerForm('name', event.target.value)} />
-                </label>
-                <label>
-                  رقم الهاتف
-                  <input required inputMode="tel" value={seekerForm.phone} onChange={(event) => updateSeekerForm('phone', event.target.value)} />
-                </label>
-                <label>
-                  نوع الطلب
-                  <select value={seekerForm.requestIntent} onChange={(event) => updateSeekerForm('requestIntent', event.target.value)}>
-                    <option>شراء</option>
-                    <option>إيجار</option>
-                    <option>شراء أو إيجار</option>
-                  </select>
-                </label>
-                <label>
-                  نوع العقار
-                  <select value={seekerForm.propertyType} onChange={(event) => updateSeekerForm('propertyType', event.target.value)}>
-                    {PROPERTY_TYPES.map((type) => <option key={type}>{type}</option>)}
-                  </select>
-                </label>
-                <label>
-                  المدينة
-                  <input value={seekerForm.city} onChange={(event) => updateSeekerForm('city', event.target.value)} />
-                </label>
-                <label>
-                  المناطق المطلوبة
-                  <input value={seekerForm.preferredAreas} onChange={(event) => updateSeekerForm('preferredAreas', event.target.value)} />
-                </label>
-                <label>
-                  الميزانية
-                  <input value={seekerForm.budget} onChange={(event) => updateSeekerForm('budget', event.target.value)} />
-                </label>
-                <label>
-                  طريقة الدفع
-                  <input value={seekerForm.paymentMethod} onChange={(event) => updateSeekerForm('paymentMethod', event.target.value)} />
-                </label>
-                <label>
-                  درجة الاستعجال
-                  <select value={seekerForm.urgency} onChange={(event) => updateSeekerForm('urgency', event.target.value)}>
-                    <option>عادي</option>
-                    <option>قريب</option>
-                    <option>عاجل</option>
-                  </select>
-                </label>
-                <label>
-                  الحالة
-                  <select value={seekerForm.status} onChange={(event) => updateSeekerForm('status', event.target.value as SeekerStatus)}>
-                    {SEEKER_STATUSES.map((status) => <option key={status} value={status}>{seekerStatusLabel(status)}</option>)}
-                  </select>
-                </label>
-                <label className="wide-field">
-                  تفاصيل الطلب
-                  <textarea required value={seekerForm.details} onChange={(event) => updateSeekerForm('details', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  ملاحظات
-                  <textarea value={seekerForm.notes} onChange={(event) => updateSeekerForm('notes', event.target.value)} />
-                </label>
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="primary-action" disabled={isSaving}>{editingSeekerId ? 'حفظ التعديل' : 'إضافة العميل'}</button>
-                {editingSeekerId && <button type="button" className="secondary-action" onClick={resetSeekerForm}>إلغاء</button>}
-              </div>
+              {!isSeekerFormOpen && (
+                <p className="collapsed-form-note">النموذج مطوي لتظل لوحة المتابعة واضحة. افتحه فقط عند إضافة عميل جديد أو تعديل بيانات عميل.</p>
+              )}
+              {isSeekerFormOpen && (
+                <>
+                  <div className="form-grid">
+                    <label>
+                      اسم العميل
+                      <input required value={seekerForm.name} onChange={(event) => updateSeekerForm('name', event.target.value)} />
+                    </label>
+                    <label>
+                      رقم الهاتف
+                      <input required inputMode="tel" value={seekerForm.phone} onChange={(event) => updateSeekerForm('phone', event.target.value)} />
+                    </label>
+                    <label>
+                      نوع الطلب
+                      <select value={seekerForm.requestIntent} onChange={(event) => updateSeekerForm('requestIntent', event.target.value)}>
+                        <option>شراء</option>
+                        <option>إيجار</option>
+                        <option>شراء أو إيجار</option>
+                      </select>
+                    </label>
+                    <label>
+                      نوع العقار
+                      <select value={seekerForm.propertyType} onChange={(event) => updateSeekerForm('propertyType', event.target.value)}>
+                        {PROPERTY_TYPES.map((type) => <option key={type}>{type}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      المدينة
+                      <input value={seekerForm.city} onChange={(event) => updateSeekerForm('city', event.target.value)} />
+                    </label>
+                    <label>
+                      المناطق المطلوبة
+                      <input value={seekerForm.preferredAreas} onChange={(event) => updateSeekerForm('preferredAreas', event.target.value)} />
+                    </label>
+                    <label>
+                      الميزانية
+                      <input value={seekerForm.budget} onChange={(event) => updateSeekerForm('budget', event.target.value)} />
+                    </label>
+                    <label>
+                      طريقة الدفع
+                      <input value={seekerForm.paymentMethod} onChange={(event) => updateSeekerForm('paymentMethod', event.target.value)} />
+                    </label>
+                    <label>
+                      درجة الاستعجال
+                      <select value={seekerForm.urgency} onChange={(event) => updateSeekerForm('urgency', event.target.value)}>
+                        <option>عادي</option>
+                        <option>قريب</option>
+                        <option>عاجل</option>
+                      </select>
+                    </label>
+                    <label>
+                      الحالة
+                      <select value={seekerForm.status} onChange={(event) => updateSeekerForm('status', event.target.value as SeekerStatus)}>
+                        {SEEKER_STATUSES.map((status) => <option key={status} value={status}>{seekerStatusLabel(status)}</option>)}
+                      </select>
+                    </label>
+                    <label className="wide-field">
+                      تفاصيل الطلب
+                      <textarea required value={seekerForm.details} onChange={(event) => updateSeekerForm('details', event.target.value)} />
+                    </label>
+                    <label className="wide-field">
+                      ملاحظات
+                      <textarea value={seekerForm.notes} onChange={(event) => updateSeekerForm('notes', event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="form-actions">
+                    <button type="submit" className="primary-action" disabled={isSaving}>{editingSeekerId ? 'حفظ التعديل' : 'إضافة العميل'}</button>
+                    {editingSeekerId && (
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={() => {
+                          resetSeekerForm()
+                          setIsSeekerFormOpen(false)
+                        }}
+                      >
+                        إلغاء
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </form>
 
             <div className="records-area">
@@ -2125,7 +2175,7 @@ function App() {
                             </div>
                           </div>
                           <label className="pipeline-stage-field">
-                            المرحلة
+                            تغيير الحالة سريعًا
                             <select
                               value={seeker.status}
                               onChange={(event) => moveSeekerToStage(seeker, event.target.value as SeekerStatus)}

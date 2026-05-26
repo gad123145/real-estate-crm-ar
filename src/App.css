@@ -719,6 +719,39 @@ main {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.seeker-form-panel {
+  padding: 18px 22px;
+}
+
+.seeker-form-panel.is-collapsed {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.collapsible-form-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.collapsible-form-header .section-heading {
+  min-width: 0;
+}
+
+.form-toggle-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.collapsed-form-note {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+  margin: 10px 0 0;
+  max-width: 720px;
+}
+
 .reminder-settings-card {
   align-items: center;
   background: linear-gradient(135deg, #ffffff, var(--amber-soft));
@@ -1122,13 +1155,17 @@ textarea {
 }
 
 .pipeline-stage-field {
-  color: var(--muted);
+  background: linear-gradient(135deg, var(--blue-soft), #ffffff);
+  border: 1px solid rgba(27, 95, 130, 0.16);
+  border-radius: 8px;
+  color: var(--blue);
   font-size: 12px;
   gap: 6px;
+  padding: 9px;
 }
 
 .pipeline-stage-field select {
-  background: var(--surface);
+  background: #ffffff;
   border-color: rgba(27, 95, 130, 0.18);
   color: var(--blue);
   font-size: 13px;
@@ -1296,6 +1333,19 @@ textarea {
 
   .seekers-workspace .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .collapsible-form-header {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .form-toggle-actions {
+    width: 100%;
+  }
+
+  .form-toggle-actions button {
+    flex: 1 1 auto;
   }
 
   .pipeline-toolbar {
