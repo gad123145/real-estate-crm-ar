@@ -1062,12 +1062,12 @@ textarea {
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid var(--line);
   border-radius: 8px;
+  align-items: start;
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(6, minmax(190px, 1fr));
-  overflow-x: auto;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  overflow: visible;
   padding: 14px;
-  scroll-snap-type: x proximity;
 }
 
 .pipeline-board > .empty-state {
@@ -1080,10 +1080,9 @@ textarea {
   border-color: rgba(40, 117, 104, 0.14);
   display: grid;
   gap: 12px;
-  min-height: 420px;
+  min-height: 0;
   min-width: 0;
   padding: 12px;
-  scroll-snap-align: start;
 }
 
 .pipeline-column-header {
@@ -1117,14 +1116,17 @@ textarea {
   align-content: start;
   display: grid;
   gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .pipeline-card {
+  align-items: start;
   background: #ffffff;
   border-color: rgba(40, 50, 47, 0.1);
   box-shadow: 0 12px 28px rgba(40, 50, 47, 0.06);
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.46fr);
   padding: 12px;
 }
 
@@ -1134,13 +1136,19 @@ textarea {
 }
 
 .pipeline-card .record-main h3 {
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.15;
+}
+
+.pipeline-card .record-main p {
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .pipeline-card .meta-line span {
   border-radius: 7px;
   font-size: 12px;
+  padding: 5px 8px;
 }
 
 .pipeline-empty {
@@ -1176,12 +1184,16 @@ textarea {
 
 .compact-actions {
   gap: 6px;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   padding-top: 2px;
 }
 
 .compact-actions button,
 .compact-actions a {
   font-size: 12px;
+  min-height: 34px;
   padding: 7px 8px;
 }
 
@@ -1358,18 +1370,23 @@ textarea {
   }
 
   .pipeline-board {
-    grid-auto-columns: minmax(260px, 86vw);
-    grid-auto-flow: column;
-    grid-template-columns: none;
+    grid-auto-columns: auto;
+    grid-auto-flow: row;
+    grid-template-columns: 1fr;
     padding: 10px;
   }
 
   .pipeline-column {
-    min-height: 340px;
+    min-height: 0;
   }
 
   .pipeline-card {
+    grid-template-columns: 1fr;
     padding: 11px;
+  }
+
+  .compact-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .timeline-item,
