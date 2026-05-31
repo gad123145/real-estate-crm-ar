@@ -31,6 +31,31 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.dark {
+  --ink: #e8ebe6;
+  --muted: #8a948e;
+  --muted-strong: #a0aaa4;
+  --surface: #1e2420;
+  --paper: #161b17;
+  --line: #2d3530;
+  --line-strong: #3a443d;
+  --green: #3a9e8a;
+  --green-dark: #5bc4ad;
+  --green-soft: #1a302a;
+  --blue: #5a9bd5;
+  --blue-soft: #1a2838;
+  --amber: #e0a84a;
+  --amber-soft: #2e2515;
+  --red: #e07060;
+  --red-soft: #2e1a16;
+  color: var(--ink);
+  background:
+    linear-gradient(135deg, rgba(40, 117, 104, 0.14), transparent 28%),
+    linear-gradient(45deg, rgba(201, 138, 50, 0.18), transparent 32%),
+    repeating-linear-gradient(90deg, rgba(232, 235, 230, 0.04) 0 1px, transparent 1px 76px),
+    var(--paper);
+}
+
 * {
   box-sizing: border-box;
 }

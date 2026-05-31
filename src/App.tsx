@@ -30,8 +30,12 @@ import {
   updatePropertyOwner,
 } from './supabaseData'
 import { isSupabaseConfigured, supabase } from './supabaseClient'
+import { addToast, ToastContainer } from './components/Toast'
+import { ConfirmDialog } from './components/ConfirmDialog'
+import { ThemeToggle } from './components/ThemeToggle'
+import { useTasks, getTaskLinkLabel } from './hooks/useTasks'
 
-type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail' | 'ai'
+type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail' | 'ai' | 'tasks'
 export type ClientKind = 'owner' | 'seeker' | 'general'
 export type MediaKind = 'image' | 'video' | 'file'
 
@@ -631,6 +635,17 @@ function App() {
   ))
   const reminderAudioContextRef = useRef<AudioContext | null>(null)
 
+  // Tasks system
+  const { tasks, pendingTasks, overdueTasks, addTask, updateTask, deleteTask, toggleTaskStatus } = useTasks()
+  const [taskForm, setTaskForm] = useState({ title: '', description: '', dueDate: toDateInputValue(), priority: 'medium' as 'low' | 'medium' | 'high', linkedType: 'general' as 'owner' | 'seeker' | 'appointment' | 'general', linkedId: '' })
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+
+  // Confirm dialog
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; variant?: 'danger' | 'default' }>({ isOpen: false, title: '', message: '', onConfirm: () => {} })
+
+  // Owner form tabs
+  const [ownerFormTab, setOwnerFormTab] = useState<'basic' | 'details' | 'media'>('basic')
+
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000)
     return () => window.clearInterval(timer)
@@ -1053,15 +1068,19 @@ function App() {
         setOwners((current) => current.map((owner) => (
           owner.id === editingOwnerId ? { ...savedOwner, media: [...uploadedMedia, ...owner.media] } : owner
         )))
+        addToast('تم تحديث بيانات العقار بنجاح', 'success')
       } else {
         const savedOwner = await createPropertyOwner(ownerForm)
         const uploadedMedia = await uploadPropertyMedia(savedOwner.id, ownerFiles)
         setOwners((current) => [{ ...savedOwner, media: uploadedMedia }, ...current])
+        addToast('تم إضافة العقار بنجاح', 'success')
       }
 
       resetOwnerForm()
+      setOwnerFormTab('basic')
     } catch (error) {
       setStatusMessage(getCrmErrorMessage(error))
+      addToast('فشل حفظ بيانات العقار', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1076,15 +1095,18 @@ function App() {
       if (editingSeekerId) {
         const savedSeeker = await updateDemandClient(editingSeekerId, seekerForm)
         setSeekers((current) => current.map((seeker) => (seeker.id === editingSeekerId ? savedSeeker : seeker)))
+        addToast('تم تحديث بيانات العميل بنجاح', 'success')
       } else {
         const savedSeeker = await createDemandClient(seekerForm)
         setSeekers((current) => [savedSeeker, ...current])
+        addToast('تم إضافة العميل بنجاح', 'success')
       }
 
       resetSeekerForm()
       setIsSeekerFormOpen(false)
     } catch (error) {
       setStatusMessage(getCrmErrorMessage(error))
+      addToast('فشل حفظ بيانات العميل', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1094,7 +1116,7 @@ function App() {
     event.preventDefault()
 
     if (currentAppointmentConflicts.length > 0) {
-      window.alert('يوجد ميعاد آخر داخل نفس التوقيت. عدّل الوقت أو المدة قبل الحفظ.')
+      addToast('يوجد ميعاد آخر داخل نفس التوقيت. عدّل الوقت أو المدة قبل الحفظ.', 'warning')
       return
     }
 
@@ -1107,14 +1129,17 @@ function App() {
         setAppointments((current) =>
           current.map((appointment) => (appointment.id === editingAppointmentId ? savedAppointment : appointment)),
         )
+        addToast('تم تحديث الموعد بنجاح', 'success')
       } else {
         const savedAppointment = await createAppointmentRecord(appointmentForm)
         setAppointments((current) => [savedAppointment, ...current])
+        addToast('تم إضافة الموعد بنجاح', 'success')
       }
 
       resetAppointmentForm()
     } catch (error) {
       setStatusMessage(getCrmErrorMessage(error))
+      addToast('فشل حفظ الموعد', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1205,73 +1230,105 @@ function App() {
     setActiveSection('appointments')
   }
 
-  const deleteOwner = async (id: string) => {
-    if (window.confirm('هل تريد حذف هذا العقار وبيانات مالكه؟')) {
-      setIsSaving(true)
-      setStatusMessage('')
-
-      try {
-        await deletePropertyOwnerAndAppointments(id)
-        setOwners((current) => current.filter((owner) => owner.id !== id))
-        setAppointments((current) => current.filter((appointment) => appointment.linkedClientId !== id))
-        if (selectedOwnerId === id) backToOwners()
-      } catch (error) {
-        setStatusMessage(getCrmErrorMessage(error))
-      } finally {
-        setIsSaving(false)
-      }
-    }
+  const deleteOwner = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'حذف العقار',
+      message: 'هل تريد حذف هذا العقار وبيانات مالكه؟ لا يمكن التراجع عن هذا الإجراء.',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+        setIsSaving(true)
+        setStatusMessage('')
+        try {
+          await deletePropertyOwnerAndAppointments(id)
+          setOwners((current) => current.filter((owner) => owner.id !== id))
+          setAppointments((current) => current.filter((appointment) => appointment.linkedClientId !== id))
+          if (selectedOwnerId === id) backToOwners()
+          addToast('تم حذف العقار بنجاح', 'success')
+        } catch (error) {
+          setStatusMessage(getCrmErrorMessage(error))
+          addToast('فشل حذف العقار', 'error')
+        } finally {
+          setIsSaving(false)
+        }
+      },
+    })
   }
 
-  const deleteOwnerMedia = async (media: PropertyMedia) => {
-    if (!window.confirm('هل تريد حذف هذا الملف من العقار؟')) return
-
-    setIsSaving(true)
-    setStatusMessage('')
-
-    try {
-      await deletePropertyMediaRecord(media)
-      setOwners((current) => current.map((owner) => (
-        owner.id === media.ownerId ? { ...owner, media: owner.media.filter((item) => item.id !== media.id) } : owner
-      )))
-    } catch (error) {
-      setStatusMessage(getCrmErrorMessage(error))
-    } finally {
-      setIsSaving(false)
-    }
+  const deleteOwnerMedia = (media: PropertyMedia) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'حذف الملف',
+      message: `هل تريد حذف الملف "${media.fileName}" من العقار؟`,
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+        setIsSaving(true)
+        setStatusMessage('')
+        try {
+          await deletePropertyMediaRecord(media)
+          setOwners((current) => current.map((owner) => (
+            owner.id === media.ownerId ? { ...owner, media: owner.media.filter((item) => item.id !== media.id) } : owner
+          )))
+          addToast('تم حذف الملف بنجاح', 'success')
+        } catch (error) {
+          setStatusMessage(getCrmErrorMessage(error))
+          addToast('فشل حذف الملف', 'error')
+        } finally {
+          setIsSaving(false)
+        }
+      },
+    })
   }
 
-  const deleteSeeker = async (id: string) => {
-    if (window.confirm('هل تريد حذف بيانات هذا العميل؟')) {
-      setIsSaving(true)
-      setStatusMessage('')
-
-      try {
-        await deleteDemandClientAndAppointments(id)
-        setSeekers((current) => current.filter((seeker) => seeker.id !== id))
-        setAppointments((current) => current.filter((appointment) => appointment.linkedClientId !== id))
-      } catch (error) {
-        setStatusMessage(getCrmErrorMessage(error))
-      } finally {
-        setIsSaving(false)
-      }
-    }
+  const deleteSeeker = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'حذف العميل',
+      message: 'هل تريد حذف بيانات هذا العميل؟ لا يمكن التراجع عن هذا الإجراء.',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+        setIsSaving(true)
+        setStatusMessage('')
+        try {
+          await deleteDemandClientAndAppointments(id)
+          setSeekers((current) => current.filter((seeker) => seeker.id !== id))
+          setAppointments((current) => current.filter((appointment) => appointment.linkedClientId !== id))
+          addToast('تم حذف العميل بنجاح', 'success')
+        } catch (error) {
+          setStatusMessage(getCrmErrorMessage(error))
+          addToast('فشل حذف العميل', 'error')
+        } finally {
+          setIsSaving(false)
+        }
+      },
+    })
   }
 
-  const deleteAppointment = async (id: string) => {
-    if (window.confirm('هل تريد حذف هذا الموعد؟')) {
-      setIsSaving(true)
-      setStatusMessage('')
-
-      try {
-        await deleteAppointmentRecord(id)
-        setAppointments((current) => current.filter((appointment) => appointment.id !== id))
-      } catch (error) {
-        setStatusMessage(getCrmErrorMessage(error))
-      } finally {
-        setIsSaving(false)
-      }
-    }
+  const deleteAppointment = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'حذف الموعد',
+      message: 'هل تريد حذف هذا الموعد؟',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+        setIsSaving(true)
+        setStatusMessage('')
+        try {
+          await deleteAppointmentRecord(id)
+          setAppointments((current) => current.filter((appointment) => appointment.id !== id))
+          addToast('تم حذف الموعد بنجاح', 'success')
+        } catch (error) {
+          setStatusMessage(getCrmErrorMessage(error))
+          addToast('فشل حذف الموعد', 'error')
+        } finally {
+          setIsSaving(false)
+        }
+      },
+    })
   }
 
   const completeAppointment = async (appointment: Appointment) => {
@@ -1338,7 +1395,7 @@ function App() {
     { label: 'عقارات مسجلة', value: owners.length, tone: 'green' },
     { label: 'طالبين شراء أو إيجار', value: seekers.length, tone: 'blue' },
     { label: 'مواعيد اليوم', value: todaysAppointments.length, tone: 'amber' },
-    { label: 'تنبيهات التعارض', value: conflictGroups.length, tone: 'red' },
+    { label: 'مهام معلقة', value: pendingTasks.length + overdueTasks.length, tone: 'red' },
   ]
 
   if (!isSupabaseConfigured) {
@@ -1407,6 +1464,7 @@ function App() {
           </p>
         </div>
         <div className="header-actions" aria-label="إجراءات سريعة">
+          <ThemeToggle />
           <button type="button" className="primary-action" onClick={() => setActiveSection('ai')}>
             الذكاء الصناعي
           </button>
@@ -1418,6 +1476,9 @@ function App() {
           </button>
           <button type="button" className="secondary-action" onClick={() => setActiveSection('appointments')}>
             ميعاد جديد
+          </button>
+          <button type="button" className="secondary-action" onClick={() => setActiveSection('tasks')}>
+            المهام
           </button>
           <button type="button" className="secondary-action" onClick={signOut}>
             تسجيل خروج
@@ -1463,6 +1524,7 @@ function App() {
           ['owners', 'الملاك والعقارات'],
           ['seekers', 'طلبات العملاء'],
           ['appointments', 'المواعيد والمعاينات'],
+          ['tasks', 'المهام'],
           ['ai', 'الذكاء الصناعي'],
         ].map(([section, label]) => (
           <button
@@ -1475,6 +1537,16 @@ function App() {
           </button>
         ))}
       </nav>
+
+      <ToastContainer />
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
 
       <main>
         {activeSection === 'dashboard' && (
@@ -1573,6 +1645,52 @@ function App() {
                     </button>
                   </article>
                 ))}
+              </div>
+            </section>
+
+            <section className="latest-panel">
+              <div className="section-heading">
+                <p className="eyebrow">المهام العاجلة</p>
+                <h2>متابعات يجب إنجازها</h2>
+              </div>
+              <div className="task-list" style={{ marginTop: 0 }}>
+                {tasks.filter((t) => t.status !== 'completed').length === 0 && (
+                  <p className="empty-state">لا توجد مهام معلقة. أحسنت!</p>
+                )}
+                {tasks
+                  .filter((t) => t.status !== 'completed')
+                  .slice(0, 5)
+                  .map((task) => {
+                    const isOverdue = new Date(task.dueDate).getTime() < Date.now()
+                    const linkLabel = getTaskLinkLabel(task, owners, seekers, appointments)
+                    return (
+                      <article key={task.id} className={`task-item ${task.status === 'completed' ? 'completed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          className="task-checkbox"
+                          checked={task.status === 'completed'}
+                          onChange={() => toggleTaskStatus(task.id)}
+                          aria-label="إنجاز المهمة"
+                        />
+                        <div className="task-content">
+                          <p className="task-title">{task.title}</p>
+                          <p className="task-meta">
+                            <span className={`task-priority ${task.priority}`}>
+                              {task.priority === 'high' ? 'عالية' : task.priority === 'medium' ? 'متوسطة' : 'منخفضة'}
+                            </span>
+                            <span>{formatDate(task.dueDate)}</span>
+                            {isOverdue && <span className="task-overdue-badge">متأخرة</span>}
+                            {linkLabel && <span>{linkLabel}</span>}
+                          </p>
+                        </div>
+                        <div className="task-actions">
+                          <button type="button" onClick={() => setActiveSection('tasks')}>
+                            فتح
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
               </div>
             </section>
           </section>
@@ -1711,148 +1829,169 @@ function App() {
                 <p className="eyebrow">قسم العقارات</p>
                 <h2>{editingOwnerId ? 'تعديل بيانات عقار' : 'إضافة عقار وبيانات مالكه'}</h2>
               </div>
-              <div className="form-grid">
-                <label>
-                  اسم المالك
-                  <input required value={ownerForm.ownerName} onChange={(event) => updateOwnerForm('ownerName', event.target.value)} />
-                </label>
-                <label>
-                  رقم الهاتف
-                  <input required inputMode="tel" value={ownerForm.phone} onChange={(event) => updateOwnerForm('phone', event.target.value)} />
-                </label>
-                <label>
-                  واتساب
-                  <input inputMode="tel" value={ownerForm.whatsapp} onChange={(event) => updateOwnerForm('whatsapp', event.target.value)} />
-                </label>
-                <label>
-                  كود العقار
-                  <input value={ownerForm.propertyCode} onChange={(event) => updateOwnerForm('propertyCode', event.target.value)} />
-                </label>
-                <label>
-                  نوع العقار
-                  <select value={ownerForm.propertyType} onChange={(event) => updateOwnerForm('propertyType', event.target.value)}>
-                    {PROPERTY_TYPES.map((type) => <option key={type}>{type}</option>)}
-                  </select>
-                </label>
-                <label>
-                  العرض
-                  <select value={ownerForm.listingIntent} onChange={(event) => updateOwnerForm('listingIntent', event.target.value)}>
-                    <option>بيع</option>
-                    <option>إيجار</option>
-                    <option>بيع أو إيجار</option>
-                  </select>
-                </label>
-                <label>
-                  اسم الكمبوند/العمارة
-                  <input value={ownerForm.buildingName} onChange={(event) => updateOwnerForm('buildingName', event.target.value)} />
-                </label>
-                <label>
-                  رقم الوحدة
-                  <input value={ownerForm.unitNumber} onChange={(event) => updateOwnerForm('unitNumber', event.target.value)} />
-                </label>
-                <label>
-                  المدينة
-                  <input value={ownerForm.city} onChange={(event) => updateOwnerForm('city', event.target.value)} />
-                </label>
-                <label>
-                  المنطقة
-                  <input value={ownerForm.district} onChange={(event) => updateOwnerForm('district', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  العنوان التفصيلي
-                  <input value={ownerForm.address} onChange={(event) => updateOwnerForm('address', event.target.value)} />
-                </label>
-                <label>
-                  السعر المطلوب
-                  <input value={ownerForm.price} onChange={(event) => updateOwnerForm('price', event.target.value)} />
-                </label>
-                <label>
-                  المساحة
-                  <input value={ownerForm.area} onChange={(event) => updateOwnerForm('area', event.target.value)} />
-                </label>
-                <label>
-                  الغرف
-                  <input value={ownerForm.bedrooms} onChange={(event) => updateOwnerForm('bedrooms', event.target.value)} />
-                </label>
-                <label>
-                  الحمامات
-                  <input value={ownerForm.bathrooms} onChange={(event) => updateOwnerForm('bathrooms', event.target.value)} />
-                </label>
-                <label>
-                  الريسبشن/الصالات
-                  <input value={ownerForm.receptionRooms} onChange={(event) => updateOwnerForm('receptionRooms', event.target.value)} />
-                </label>
-                <label>
-                  الدور
-                  <input value={ownerForm.floor} onChange={(event) => updateOwnerForm('floor', event.target.value)} />
-                </label>
-                <label>
-                  التشطيب
-                  <input value={ownerForm.finishing} onChange={(event) => updateOwnerForm('finishing', event.target.value)} />
-                </label>
-                <label>
-                  الفرش
-                  <input value={ownerForm.furnishing} onChange={(event) => updateOwnerForm('furnishing', event.target.value)} />
-                </label>
-                <label>
-                  الواجهة/الفيو
-                  <input value={ownerForm.viewDescription} onChange={(event) => updateOwnerForm('viewDescription', event.target.value)} />
-                </label>
-                <label>
-                  موقف الترخيص/العقد
-                  <input value={ownerForm.licenseStatus} onChange={(event) => updateOwnerForm('licenseStatus', event.target.value)} />
-                </label>
-                <label>
-                  تاريخ التسليم
-                  <input value={ownerForm.deliveryDate} onChange={(event) => updateOwnerForm('deliveryDate', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  طريقة الدفع/التقسيط
-                  <input value={ownerForm.paymentPlan} onChange={(event) => updateOwnerForm('paymentPlan', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  الخدمات والمميزات
-                  <textarea value={ownerForm.amenities} onChange={(event) => updateOwnerForm('amenities', event.target.value)} />
-                </label>
-                <label>
-                  رابط الموقع على الخريطة
-                  <input inputMode="url" value={ownerForm.mapUrl} onChange={(event) => updateOwnerForm('mapUrl', event.target.value)} />
-                </label>
-                <label>
-                  رابط جولة أو فيديو خارجي
-                  <input inputMode="url" value={ownerForm.virtualTourUrl} onChange={(event) => updateOwnerForm('virtualTourUrl', event.target.value)} />
-                </label>
-                <label>
-                  الإتاحة
-                  <input value={ownerForm.availability} onChange={(event) => updateOwnerForm('availability', event.target.value)} />
-                </label>
-                <label>
-                  الحالة
-                  <select value={ownerForm.status} onChange={(event) => updateOwnerForm('status', event.target.value as OwnerStatus)}>
-                    {OWNER_STATUSES.map((status) => <option key={status}>{status}</option>)}
-                  </select>
-                </label>
-                <label>
-                  مصدر العميل
-                  <input value={ownerForm.source} onChange={(event) => updateOwnerForm('source', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  ملاحظات
-                  <textarea value={ownerForm.notes} onChange={(event) => updateOwnerForm('notes', event.target.value)} />
-                </label>
-                <label className="wide-field">
-                  صور وفيديوهات العقار
-                  <input type="file" multiple accept="image/*,video/*" onChange={(event) => updateOwnerFiles(event.target.files)} />
-                  <span className="field-hint">يمكن اختيار أكثر من صورة أو فيديو من الكمبيوتر أو الموبايل، بحد 100MB للملف.</span>
-                </label>
-                {ownerFiles.length > 0 && (
-                  <div className="selected-files wide-field">
-                    {ownerFiles.map((file) => (
-                      <span key={`${file.name}-${file.size}`}>{file.name} - {fileSizeLabel(file.size)}</span>
-                    ))}
-                  </div>
-                )}
+              <div className="form-tabs" role="tablist" aria-label="أقسام نموذج العقار">
+                <button type="button" className={ownerFormTab === 'basic' ? 'is-active' : ''} onClick={() => setOwnerFormTab('basic')} role="tab" aria-selected={ownerFormTab === 'basic'}>
+                  البيانات الأساسية
+                </button>
+                <button type="button" className={ownerFormTab === 'details' ? 'is-active' : ''} onClick={() => setOwnerFormTab('details')} role="tab" aria-selected={ownerFormTab === 'details'}>
+                  التفاصيل والمميزات
+                </button>
+                <button type="button" className={ownerFormTab === 'media' ? 'is-active' : ''} onClick={() => setOwnerFormTab('media')} role="tab" aria-selected={ownerFormTab === 'media'}>
+                  الوسائط
+                </button>
               </div>
+              {ownerFormTab === 'basic' && (
+                <div className="form-grid" role="tabpanel">
+                  <label>
+                    اسم المالك
+                    <input required value={ownerForm.ownerName} onChange={(event) => updateOwnerForm('ownerName', event.target.value)} />
+                  </label>
+                  <label>
+                    رقم الهاتف
+                    <input required inputMode="tel" value={ownerForm.phone} onChange={(event) => updateOwnerForm('phone', event.target.value)} />
+                  </label>
+                  <label>
+                    واتساب
+                    <input inputMode="tel" value={ownerForm.whatsapp} onChange={(event) => updateOwnerForm('whatsapp', event.target.value)} />
+                  </label>
+                  <label>
+                    كود العقار
+                    <input value={ownerForm.propertyCode} onChange={(event) => updateOwnerForm('propertyCode', event.target.value)} />
+                  </label>
+                  <label>
+                    نوع العقار
+                    <select value={ownerForm.propertyType} onChange={(event) => updateOwnerForm('propertyType', event.target.value)}>
+                      {PROPERTY_TYPES.map((type) => <option key={type}>{type}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    العرض
+                    <select value={ownerForm.listingIntent} onChange={(event) => updateOwnerForm('listingIntent', event.target.value)}>
+                      <option>بيع</option>
+                      <option>إيجار</option>
+                      <option>بيع أو إيجار</option>
+                    </select>
+                  </label>
+                  <label>
+                    اسم الكمبوند/العمارة
+                    <input value={ownerForm.buildingName} onChange={(event) => updateOwnerForm('buildingName', event.target.value)} />
+                  </label>
+                  <label>
+                    رقم الوحدة
+                    <input value={ownerForm.unitNumber} onChange={(event) => updateOwnerForm('unitNumber', event.target.value)} />
+                  </label>
+                  <label>
+                    المدينة
+                    <input value={ownerForm.city} onChange={(event) => updateOwnerForm('city', event.target.value)} />
+                  </label>
+                  <label>
+                    المنطقة
+                    <input value={ownerForm.district} onChange={(event) => updateOwnerForm('district', event.target.value)} />
+                  </label>
+                  <label className="wide-field">
+                    العنوان التفصيلي
+                    <input value={ownerForm.address} onChange={(event) => updateOwnerForm('address', event.target.value)} />
+                  </label>
+                  <label>
+                    السعر المطلوب
+                    <input value={ownerForm.price} onChange={(event) => updateOwnerForm('price', event.target.value)} />
+                  </label>
+                  <label>
+                    المساحة
+                    <input value={ownerForm.area} onChange={(event) => updateOwnerForm('area', event.target.value)} />
+                  </label>
+                  <label>
+                    الحالة
+                    <select value={ownerForm.status} onChange={(event) => updateOwnerForm('status', event.target.value as OwnerStatus)}>
+                      {OWNER_STATUSES.map((status) => <option key={status}>{status}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    مصدر العميل
+                    <input value={ownerForm.source} onChange={(event) => updateOwnerForm('source', event.target.value)} />
+                  </label>
+                </div>
+              )}
+              {ownerFormTab === 'details' && (
+                <div className="form-grid" role="tabpanel">
+                  <label>
+                    الغرف
+                    <input value={ownerForm.bedrooms} onChange={(event) => updateOwnerForm('bedrooms', event.target.value)} />
+                  </label>
+                  <label>
+                    الحمامات
+                    <input value={ownerForm.bathrooms} onChange={(event) => updateOwnerForm('bathrooms', event.target.value)} />
+                  </label>
+                  <label>
+                    الريسبشن/الصالات
+                    <input value={ownerForm.receptionRooms} onChange={(event) => updateOwnerForm('receptionRooms', event.target.value)} />
+                  </label>
+                  <label>
+                    الدور
+                    <input value={ownerForm.floor} onChange={(event) => updateOwnerForm('floor', event.target.value)} />
+                  </label>
+                  <label>
+                    التشطيب
+                    <input value={ownerForm.finishing} onChange={(event) => updateOwnerForm('finishing', event.target.value)} />
+                  </label>
+                  <label>
+                    الفرش
+                    <input value={ownerForm.furnishing} onChange={(event) => updateOwnerForm('furnishing', event.target.value)} />
+                  </label>
+                  <label>
+                    الواجهة/الفيو
+                    <input value={ownerForm.viewDescription} onChange={(event) => updateOwnerForm('viewDescription', event.target.value)} />
+                  </label>
+                  <label>
+                    موقف الترخيص/العقد
+                    <input value={ownerForm.licenseStatus} onChange={(event) => updateOwnerForm('licenseStatus', event.target.value)} />
+                  </label>
+                  <label>
+                    تاريخ التسليم
+                    <input value={ownerForm.deliveryDate} onChange={(event) => updateOwnerForm('deliveryDate', event.target.value)} />
+                  </label>
+                  <label className="wide-field">
+                    طريقة الدفع/التقسيط
+                    <input value={ownerForm.paymentPlan} onChange={(event) => updateOwnerForm('paymentPlan', event.target.value)} />
+                  </label>
+                  <label className="wide-field">
+                    الخدمات والمميزات
+                    <textarea value={ownerForm.amenities} onChange={(event) => updateOwnerForm('amenities', event.target.value)} />
+                  </label>
+                  <label>
+                    رابط الموقع على الخريطة
+                    <input inputMode="url" value={ownerForm.mapUrl} onChange={(event) => updateOwnerForm('mapUrl', event.target.value)} />
+                  </label>
+                  <label>
+                    رابط جولة أو فيديو خارجي
+                    <input inputMode="url" value={ownerForm.virtualTourUrl} onChange={(event) => updateOwnerForm('virtualTourUrl', event.target.value)} />
+                  </label>
+                  <label>
+                    الإتاحة
+                    <input value={ownerForm.availability} onChange={(event) => updateOwnerForm('availability', event.target.value)} />
+                  </label>
+                  <label className="wide-field">
+                    ملاحظات
+                    <textarea value={ownerForm.notes} onChange={(event) => updateOwnerForm('notes', event.target.value)} />
+                  </label>
+                </div>
+              )}
+              {ownerFormTab === 'media' && (
+                <div className="form-grid" role="tabpanel">
+                  <label className="wide-field">
+                    صور وفيديوهات العقار
+                    <input type="file" multiple accept="image/*,video/*" onChange={(event) => updateOwnerFiles(event.target.files)} />
+                    <span className="field-hint">يمكن اختيار أكثر من صورة أو فيديو من الكمبيوتر أو الموبايل، بحد 100MB للملف.</span>
+                  </label>
+                  {ownerFiles.length > 0 && (
+                    <div className="selected-files wide-field">
+                      {ownerFiles.map((file) => (
+                        <span key={`${file.name}-${file.size}`}>{file.name} - {fileSizeLabel(file.size)}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="form-actions">
                 <button type="submit" className="primary-action" disabled={isSaving}>{editingOwnerId ? 'حفظ التعديل' : 'إضافة العقار'}</button>
                 {editingOwnerId && <button type="button" className="secondary-action" onClick={resetOwnerForm}>إلغاء</button>}
@@ -2321,6 +2460,199 @@ function App() {
                         {isLiveAppointment(appointment.status) && <button type="button" className="primary-action" onClick={() => completeAppointment(appointment)}>تمت المتابعة</button>}
                         <button type="button" className="text-action" onClick={() => editAppointment(appointment)}>تعديل</button>
                         <button type="button" className="danger-action" onClick={() => deleteAppointment(appointment.id)}>حذف</button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+        {activeSection === 'tasks' && (
+          <section className="workspace-grid" aria-label="المهام والمتابعات">
+            <div className="tasks-panel">
+              <div className="section-heading">
+                <p className="eyebrow">إدارة المهام</p>
+                <h2>{editingTaskId ? 'تعديل مهمة' : 'إضافة مهمة جديدة'}</h2>
+              </div>
+              <div className="task-form-grid">
+                <label className="wide-field">
+                  عنوان المهمة
+                  <input
+                    required
+                    value={taskForm.title}
+                    onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="مثال: متابعة عرض العقار مع العميل"
+                  />
+                </label>
+                <label className="wide-field">
+                  وصف المهمة
+                  <textarea
+                    value={taskForm.description}
+                    onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))}
+                    placeholder="تفاصيل إضافية عن المهمة..."
+                  />
+                </label>
+                <label>
+                  تاريخ الاستحقاق
+                  <input
+                    type="date"
+                    value={taskForm.dueDate}
+                    onChange={(event) => setTaskForm((current) => ({ ...current, dueDate: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  الأولوية
+                  <select
+                    value={taskForm.priority}
+                    onChange={(event) => setTaskForm((current) => ({ ...current, priority: event.target.value as 'low' | 'medium' | 'high' }))}
+                  >
+                    <option value="low">منخفضة</option>
+                    <option value="medium">متوسطة</option>
+                    <option value="high">عالية</option>
+                  </select>
+                </label>
+                <label>
+                  ربط بسجل
+                  <select
+                    value={taskForm.linkedId ? `${taskForm.linkedType}:${taskForm.linkedId}` : ''}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      if (!value) {
+                        setTaskForm((current) => ({ ...current, linkedType: 'general', linkedId: '' }))
+                        return
+                      }
+                      const [type, id] = value.split(':')
+                      setTaskForm((current) => ({ ...current, linkedType: type as 'owner' | 'seeker' | 'appointment', linkedId: id }))
+                    }}
+                  >
+                    <option value="">مهمة عامة</option>
+                    {owners.map((owner) => (
+                      <option key={`owner:${owner.id}`} value={`owner:${owner.id}`}>
+                        عقار: {owner.ownerName || owner.propertyType}
+                      </option>
+                    ))}
+                    {seekers.map((seeker) => (
+                      <option key={`seeker:${seeker.id}`} value={`seeker:${seeker.id}`}>
+                        عميل: {seeker.name}
+                      </option>
+                    ))}
+                    {appointments.map((appointment) => (
+                      <option key={`appointment:${appointment.id}`} value={`appointment:${appointment.id}`}>
+                        موعد: {appointment.title || appointment.appointmentType}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => {
+                    if (!taskForm.title.trim()) {
+                      addToast('أدخل عنوان المهمة أولاً', 'warning')
+                      return
+                    }
+                    if (editingTaskId) {
+                      updateTask(editingTaskId, taskForm)
+                      addToast('تم تحديث المهمة', 'success')
+                      setEditingTaskId(null)
+                    } else {
+                      addTask({ ...taskForm, status: 'pending' })
+                      addToast('تم إضافة المهمة بنجاح', 'success')
+                    }
+                    setTaskForm({ title: '', description: '', dueDate: toDateInputValue(), priority: 'medium', linkedType: 'general', linkedId: '' })
+                  }}
+                >
+                  {editingTaskId ? 'حفظ التعديل' : 'إضافة المهمة'}
+                </button>
+                {editingTaskId && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => {
+                      setEditingTaskId(null)
+                      setTaskForm({ title: '', description: '', dueDate: toDateInputValue(), priority: 'medium', linkedType: 'general', linkedId: '' })
+                    }}
+                  >
+                    إلغاء
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="records-area">
+              <div className="section-heading compact-heading">
+                <p className="eyebrow">المهام</p>
+                <h2>قائمة المهام والمتابعات</h2>
+              </div>
+              {overdueTasks.length > 0 && (
+                <div className="sync-banner danger" style={{ marginBottom: 14 }}>
+                  <strong>{overdueTasks.length} مهمة متأخرة</strong> — راجع المهام التي تجاوزت تاريخ الاستحقاق.
+                </div>
+              )}
+              <div className="task-list">
+                {tasks.length === 0 && <p className="empty-state">لا توجد مهام مسجلة. أضف مهمة جديدة للبدء.</p>}
+                {tasks.map((task) => {
+                  const isOverdue = task.status !== 'completed' && new Date(task.dueDate).getTime() < Date.now()
+                  const linkLabel = getTaskLinkLabel(task, owners, seekers, appointments)
+                  return (
+                    <article key={task.id} className={`task-item ${task.status === 'completed' ? 'completed' : ''}`}>
+                      <input
+                        type="checkbox"
+                        className="task-checkbox"
+                        checked={task.status === 'completed'}
+                        onChange={() => toggleTaskStatus(task.id)}
+                        aria-label={task.status === 'completed' ? 'إلغاء الإنجاز' : 'إنجاز المهمة'}
+                      />
+                      <div className="task-content">
+                        <p className="task-title">{task.title}</p>
+                        <p className="task-meta">
+                          {task.description && <span>{task.description}</span>}
+                          <span className={`task-priority ${task.priority}`}>
+                            {task.priority === 'high' ? 'عالية' : task.priority === 'medium' ? 'متوسطة' : 'منخفضة'}
+                          </span>
+                          <span>{formatDate(task.dueDate)}</span>
+                          {isOverdue && <span className="task-overdue-badge">متأخرة</span>}
+                          {linkLabel && <span>{linkLabel}</span>}
+                        </p>
+                      </div>
+                      <div className="task-actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingTaskId(task.id)
+                            setTaskForm({
+                              title: task.title,
+                              description: task.description,
+                              dueDate: task.dueDate,
+                              priority: task.priority,
+                              linkedType: task.linkedType,
+                              linkedId: task.linkedId,
+                            })
+                          }}
+                        >
+                          تعديل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'حذف المهمة',
+                              message: `هل تريد حذف المهمة "${task.title}"؟`,
+                              variant: 'danger',
+                              onConfirm: () => {
+                                setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+                                deleteTask(task.id)
+                                addToast('تم حذف المهمة', 'success')
+                              },
+                            })
+                          }}
+                        >
+                          حذف
+                        </button>
                       </div>
                     </article>
                   )
