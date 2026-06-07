@@ -238,11 +238,16 @@ function makeEmptyAppointmentForm(): AppointmentForm {
 
 function formatDate(value: string) {
   if (!value) return 'بدون تاريخ'
-  return dateFormatter.format(new Date(`${value}T12:00:00`))
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value)
+  if (Number.isNaN(parsed.getTime())) return 'بدون تاريخ'
+  return dateFormatter.format(parsed)
 }
 
 function formatDateTime(value: string) {
-  return dateTimeFormatter.format(new Date(value))
+  if (!value) return 'بدون تاريخ'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return 'بدون تاريخ'
+  return dateTimeFormatter.format(parsed)
 }
 
 function normalizeSearchValue(value: string) {
@@ -606,6 +611,8 @@ function App() {
   const [isSeekerFormOpen, setIsSeekerFormOpen] = useState(false)
   const [ownerSearch, setOwnerSearch] = useState('')
   const [seekerSearch, setSeekerSearch] = useState('')
+  const [seekerUrgencyFilter, setSeekerUrgencyFilter] = useState<string>('all')
+  const [seekerIntentFilter, setSeekerIntentFilter] = useState<string>('all')
   const [appointmentSearch, setAppointmentSearch] = useState('')
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null)
   const [downloadingOwnerId, setDownloadingOwnerId] = useState<string | null>(null)
@@ -762,10 +769,19 @@ function App() {
 
   const visibleOwners = owners.filter((owner) => matchesSearch(ownerSearchText(owner), ownerSearch))
   const visibleSeekers = seekers.filter((seeker) => matchesSearch(seekerSearchText(seeker), seekerSearch))
-  const seekerPipelineGroups = SEEKER_PIPELINE_STAGES.map((stage) => ({
+  const filteredSeekers = visibleSeekers.filter((seeker) => {
+    if (seekerUrgencyFilter !== 'all' && seeker.urgency !== seekerUrgencyFilter) return false
+    if (seekerIntentFilter !== 'all' && seeker.requestIntent !== seekerIntentFilter) return false
+    return true
+  })
+  const filteredPipelineGroups = SEEKER_PIPELINE_STAGES.map((stage) => ({
     ...stage,
-    seekers: visibleSeekers.filter((seeker) => seeker.status === stage.status),
+    seekers: filteredSeekers.filter((seeker) => seeker.status === stage.status),
   }))
+  const resetSeekerFilters = () => {
+    setSeekerUrgencyFilter('all')
+    setSeekerIntentFilter('all')
+  }
   const visibleAppointments = appointments
     .filter((appointment) => matchesSearch(appointmentSearchText(appointment), appointmentSearch))
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))
@@ -2290,10 +2306,53 @@ function App() {
                   <span>الإجمالي {numberFormatter.format(seekers.length)}</span>
                 </div>
               </div>
-              <input className="search-input" placeholder="بحث باسم، رقم، منطقة، ميزانية" value={seekerSearch} onChange={(event) => setSeekerSearch(event.target.value)} />
+              <div className="seeker-quick-stats" aria-label="إحصائيات سريعة لطلبات العملاء">
+                <div className="seeker-stat-card">
+                  <span className="seeker-stat-label">إجمالي الطلبات</span>
+                  <strong>{numberFormatter.format(seekers.length)}</strong>
+                </div>
+                <div className="seeker-stat-card">
+                  <span className="seeker-stat-label">طلبات عاجلة</span>
+                  <strong>{numberFormatter.format(seekers.filter((item) => item.urgency === 'عاجل').length)}</strong>
+                </div>
+                <div className="seeker-stat-card">
+                  <span className="seeker-stat-label">قيد التفاوض</span>
+                  <strong>{numberFormatter.format(seekers.filter((item) => item.status === 'جارى التفاوض').length)}</strong>
+                </div>
+                <div className="seeker-stat-card">
+                  <span className="seeker-stat-label">تم الإغلاق</span>
+                  <strong>{numberFormatter.format(seekers.filter((item) => item.status === 'تم الإغلاق').length)}</strong>
+                </div>
+              </div>
+              <div className="seeker-toolbar">
+                <input className="search-input" placeholder="بحث باسم، رقم، منطقة، ميزانية" value={seekerSearch} onChange={(event) => setSeekerSearch(event.target.value)} />
+                <div className="seeker-filters" role="group" aria-label="فلاتر سريعة">
+                  <label>
+                    الاستعجال
+                    <select value={seekerUrgencyFilter} onChange={(event) => setSeekerUrgencyFilter(event.target.value)}>
+                      <option value="all">الكل</option>
+                      <option value="عاجل">عاجل</option>
+                      <option value="قريب">قريب</option>
+                      <option value="عادي">عادي</option>
+                    </select>
+                  </label>
+                  <label>
+                    نوع الطلب
+                    <select value={seekerIntentFilter} onChange={(event) => setSeekerIntentFilter(event.target.value)}>
+                      <option value="all">الكل</option>
+                      <option value="شراء">شراء</option>
+                      <option value="إيجار">إيجار</option>
+                      <option value="شراء أو إيجار">شراء أو إيجار</option>
+                    </select>
+                  </label>
+                  {(seekerUrgencyFilter !== 'all' || seekerIntentFilter !== 'all') && (
+                    <button type="button" className="text-action" onClick={resetSeekerFilters}>إعادة ضبط الفلاتر</button>
+                  )}
+                </div>
+              </div>
               <div className="pipeline-board" aria-label="مراحل متابعة العميل">
-                {visibleSeekers.length === 0 && <p className="empty-state">لا توجد سجلات مطابقة.</p>}
-                {visibleSeekers.length > 0 && seekerPipelineGroups.map((stage) => (
+                {filteredSeekers.length === 0 && <p className="empty-state">لا توجد سجلات مطابقة.</p>}
+                {filteredSeekers.length > 0 && filteredPipelineGroups.map((stage) => (
                   <section className="pipeline-column" key={stage.status} aria-label={stage.label}>
                     <div className="pipeline-column-header">
                       <h3>{stage.label}</h3>
@@ -2301,39 +2360,126 @@ function App() {
                     </div>
                     <div className="pipeline-card-list">
                       {stage.seekers.length === 0 && <p className="pipeline-empty">لا يوجد عملاء</p>}
-                      {stage.seekers.map((seeker) => (
-                        <article className="pipeline-card" key={seeker.id}>
-                          <div className="record-main">
-                            <span className="status-pill blue-pill">{seekerStatusLabel(seeker.status)}</span>
-                            <h3>{seeker.name}</h3>
-                            <p>{seeker.requestIntent} {seeker.propertyType} - {seeker.preferredAreas || seeker.city || 'منطقة غير محددة'}</p>
-                            <div className="meta-line">
-                              <span>{seeker.phone}</span>
-                              <span>{seeker.budget || 'ميزانية غير محددة'}</span>
-                              <span>أضيف {formatDateTime(seeker.createdAt)}</span>
+                      {stage.seekers.map((seeker) => {
+                        const seekerAppointments = appointments.filter((appointment) => appointment.linkedClientId === seeker.id)
+                        const liveAppointmentsCount = seekerAppointments.filter((appointment) => isLiveAppointment(appointment.status)).length
+                        const completedAppointmentsCount = seekerAppointments.filter((appointment) => appointment.status === 'تم').length
+                        const urgencyClass = seeker.urgency === 'عاجل' ? 'urgent' : seeker.urgency === 'قريب' ? 'soon' : 'normal'
+                        const intentClass = seeker.requestIntent === 'شراء' ? 'buy' : seeker.requestIntent === 'إيجار' ? 'rent' : 'mixed'
+
+                        return (
+                          <article className={`seeker-card urgency-${urgencyClass} intent-${intentClass}`} key={seeker.id}>
+                            <header className="seeker-card-head">
+                              <div className="seeker-avatar" aria-hidden="true">
+                                <span>{(seeker.name || '؟').trim().charAt(0) || '؟'}</span>
+                              </div>
+                              <div className="seeker-head-text">
+                                <h3>{seeker.name || 'بدون اسم'}</h3>
+                                <span className="seeker-head-sub">عميل #{seeker.id.slice(0, 6)}</span>
+                              </div>
+                              <span className={`seeker-status-badge status-${seeker.status.replace(/\s/g, '')}`}>
+                                {seekerStatusLabel(seeker.status)}
+                              </span>
+                            </header>
+
+                            <div className="seeker-badges">
+                              <span className={`seeker-badge intent-badge intent-${intentClass}`}>
+                                <span className="badge-icon" aria-hidden="true">🏷</span>
+                                {seeker.requestIntent} {seeker.propertyType}
+                              </span>
+                              <span className={`seeker-badge urgency-badge urgency-${urgencyClass}`}>
+                                <span className="badge-icon" aria-hidden="true">⏱</span>
+                                {seeker.urgency}
+                              </span>
+                              {seeker.budget && (
+                                <span className="seeker-badge budget-badge">
+                                  <span className="badge-icon" aria-hidden="true">💰</span>
+                                  {seeker.budget}
+                                </span>
+                              )}
                             </div>
-                          </div>
-                          <label className="pipeline-stage-field">
-                            تغيير الحالة سريعًا
-                            <select
-                              value={seeker.status}
-                              onChange={(event) => moveSeekerToStage(seeker, event.target.value as SeekerStatus)}
-                              disabled={isSaving}
-                            >
-                              {SEEKER_PIPELINE_STAGES.map((nextStage) => (
-                                <option key={nextStage.status} value={nextStage.status}>{nextStage.label}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <div className="row-actions compact-actions">
-                            {phoneHref(seeker.phone) && <a className="text-action" href={phoneHref(seeker.phone)}>اتصال</a>}
-                            {whatsappHref(seeker.phone) && <a className="text-action" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">واتساب</a>}
-                            <button type="button" className="text-action" onClick={() => addAppointmentForSeeker(seeker)}>ميعاد</button>
-                            <button type="button" className="text-action" onClick={() => editSeeker(seeker)}>تعديل</button>
-                            <button type="button" className="danger-action" onClick={() => deleteSeeker(seeker.id)}>حذف</button>
-                          </div>
-                        </article>
-                      ))}
+
+                            <section className="seeker-section" aria-label="بيانات الاتصال">
+                              <h4 className="seeker-section-title">بيانات الاتصال</h4>
+                              <div className="seeker-contact-grid">
+                                <a className="seeker-contact phone" href={phoneHref(seeker.phone) || '#'} dir="ltr">
+                                  <span className="contact-icon" aria-hidden="true">📞</span>
+                                  <span className="contact-text">{seeker.phone || 'لا يوجد رقم'}</span>
+                                </a>
+                                {whatsappHref(seeker.phone) && (
+                                  <a className="seeker-contact whatsapp" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">
+                                    <span className="contact-icon" aria-hidden="true">💬</span>
+                                    <span className="contact-text">واتساب</span>
+                                  </a>
+                                )}
+                              </div>
+                            </section>
+
+                            <section className="seeker-section" aria-label="تفاصيل الطلب">
+                              <h4 className="seeker-section-title">تفاصيل الطلب</h4>
+                              <ul className="seeker-detail-list">
+                                <li>
+                                  <span className="detail-label">نوع العقار</span>
+                                  <span className="detail-value">{seeker.propertyType}</span>
+                                </li>
+                                <li>
+                                  <span className="detail-label">المدينة</span>
+                                  <span className="detail-value">{seeker.city || 'غير محددة'}</span>
+                                </li>
+                                <li>
+                                  <span className="detail-label">المناطق المطلوبة</span>
+                                  <span className="detail-value">{seeker.preferredAreas || 'غير محددة'}</span>
+                                </li>
+                                <li>
+                                  <span className="detail-label">طريقة الدفع</span>
+                                  <span className="detail-value">{seeker.paymentMethod || 'غير محددة'}</span>
+                                </li>
+                              </ul>
+                            </section>
+
+                            {seeker.details && (
+                              <section className="seeker-section seeker-description" aria-label="وصف الطلب">
+                                <h4 className="seeker-section-title">وصف الطلب</h4>
+                                <p>{seeker.details}</p>
+                              </section>
+                            )}
+
+                            {seeker.notes && (
+                              <section className="seeker-section seeker-notes" aria-label="ملاحظات">
+                                <h4 className="seeker-section-title">ملاحظات</h4>
+                                <p>{seeker.notes}</p>
+                              </section>
+                            )}
+
+                            <footer className="seeker-card-foot">
+                              <div className="seeker-meta">
+                                <span title="تاريخ الإضافة">📅 {formatDate(seeker.createdAt)}</span>
+                                <span title="المواعيد النشطة">🗓 {numberFormatter.format(liveAppointmentsCount)} نشطة</span>
+                                <span title="المواعيد المكتملة">✓ {numberFormatter.format(completedAppointmentsCount)} منجزة</span>
+                              </div>
+                              <label className="seeker-stage-control">
+                                <span>نقل إلى</span>
+                                <select
+                                  value={seeker.status}
+                                  onChange={(event) => moveSeekerToStage(seeker, event.target.value as SeekerStatus)}
+                                  disabled={isSaving}
+                                >
+                                  {SEEKER_PIPELINE_STAGES.map((nextStage) => (
+                                    <option key={nextStage.status} value={nextStage.status}>{nextStage.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div className="seeker-actions">
+                                {phoneHref(seeker.phone) && <a className="seeker-action" href={phoneHref(seeker.phone)}>اتصال</a>}
+                                {whatsappHref(seeker.phone) && <a className="seeker-action whatsapp" href={whatsappHref(seeker.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+                                <button type="button" className="seeker-action primary" onClick={() => addAppointmentForSeeker(seeker)}>+ موعد</button>
+                                <button type="button" className="seeker-action" onClick={() => editSeeker(seeker)}>تعديل</button>
+                                <button type="button" className="seeker-action danger" onClick={() => deleteSeeker(seeker.id)}>حذف</button>
+                              </div>
+                            </footer>
+                          </article>
+                        )
+                      })}
                     </div>
                   </section>
                 ))}
