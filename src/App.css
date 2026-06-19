@@ -753,6 +753,14 @@ main {
   background: var(--glass-bg);
 }
 
+.owner-form-panel {
+  padding: 18px 22px;
+}
+
+.owner-form-panel.is-collapsed {
+  background: var(--glass-bg);
+}
+
 .collapsible-form-header {
   align-items: center;
   display: flex;

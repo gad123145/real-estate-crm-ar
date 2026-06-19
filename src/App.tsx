@@ -606,6 +606,7 @@ function App() {
   const [seekerForm, setSeekerForm] = useState<SeekerForm>({ ...emptySeekerForm })
   const [appointmentForm, setAppointmentForm] = useState<AppointmentForm>(() => makeEmptyAppointmentForm())
   const [editingOwnerId, setEditingOwnerId] = useState<string | null>(null)
+  const [isOwnerFormOpen, setIsOwnerFormOpen] = useState(false)
   const [editingSeekerId, setEditingSeekerId] = useState<string | null>(null)
   const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null)
   const [isSeekerFormOpen, setIsSeekerFormOpen] = useState(false)
@@ -1094,6 +1095,7 @@ function App() {
 
       resetOwnerForm()
       setOwnerFormTab('basic')
+      setIsOwnerFormOpen(false)
     } catch (error) {
       setStatusMessage(getCrmErrorMessage(error))
       addToast('فشل حفظ بيانات العقار', 'error')
@@ -1166,6 +1168,7 @@ function App() {
     setEditingOwnerId(owner.id)
     setSelectedOwnerId(null)
     setActiveSection('owners')
+    setIsOwnerFormOpen(true)
   }
 
   const openOwnerDetails = (owner: PropertyOwner) => {
@@ -1850,11 +1853,46 @@ function App() {
                 <span className="back-arrow">→</span> العودة للقائمة الرئيسية
               </button>
             </div>
-            <form className="form-panel" onSubmit={saveOwner}>
-              <div className="section-heading">
-                <p className="eyebrow">قسم العقارات</p>
-                <h2>{editingOwnerId ? 'تعديل بيانات عقار' : 'إضافة عقار وبيانات مالكه'}</h2>
+            <form className={`form-panel owner-form-panel ${isOwnerFormOpen ? 'is-open' : 'is-collapsed'}`} onSubmit={saveOwner}>
+              <div className="collapsible-form-header">
+                <div className="section-heading">
+                  <p className="eyebrow">قسم العقارات</p>
+                  <h2>{editingOwnerId ? 'تعديل بيانات عقار' : 'إضافة عقار وبيانات مالكه'}</h2>
+                </div>
+                <div className="form-toggle-actions">
+                  {!isOwnerFormOpen && (
+                    <button
+                      type="button"
+                      className="primary-action"
+                      onClick={() => {
+                        resetOwnerForm()
+                        setOwnerFormTab('basic')
+                        setIsOwnerFormOpen(true)
+                      }}
+                    >
+                      إضافة عقار
+                    </button>
+                  )}
+                  {isOwnerFormOpen && (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => {
+                        resetOwnerForm()
+                        setOwnerFormTab('basic')
+                        setIsOwnerFormOpen(false)
+                      }}
+                    >
+                      طي النموذج
+                    </button>
+                  )}
+                </div>
               </div>
+              {!isOwnerFormOpen && (
+                <p className="collapsed-form-note">النموذج مطوي لتظل قائمة العقارات واضحة. افتحه فقط عند إضافة عقار جديد أو تعديل بيانات عقار.</p>
+              )}
+              {isOwnerFormOpen && (
+                <>
               <div className="form-tabs" role="tablist" aria-label="أقسام نموذج العقار">
                 <button type="button" className={ownerFormTab === 'basic' ? 'is-active' : ''} onClick={() => setOwnerFormTab('basic')} role="tab" aria-selected={ownerFormTab === 'basic'}>
                   البيانات الأساسية
@@ -2020,8 +2058,10 @@ function App() {
               )}
               <div className="form-actions">
                 <button type="submit" className="primary-action" disabled={isSaving}>{editingOwnerId ? 'حفظ التعديل' : 'إضافة العقار'}</button>
-                {editingOwnerId && <button type="button" className="secondary-action" onClick={resetOwnerForm}>إلغاء</button>}
+                {editingOwnerId && <button type="button" className="secondary-action" onClick={() => { resetOwnerForm(); setOwnerFormTab('basic'); setIsOwnerFormOpen(false) }}>إلغاء</button>}
               </div>
+                </>
+              )}
             </form>
 
             <div className="records-area">
