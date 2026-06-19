@@ -15,6 +15,17 @@
   --amber-soft: #f8ecd7;
   --red: #bd4a3a;
   --red-soft: #f8e6e2;
+  --btn-surface: #ffffff;
+  --btn-surface-hover: #f4f2e9;
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-bg-strong: rgba(255, 255, 255, 0.92);
+  --glass-bg-soft: rgba(255, 255, 255, 0.6);
+  --card-bg: #ffffff;
+  --card-bg-soft: rgba(255, 255, 255, 0.9);
+  --gradient-tint: #ffffff;
+  --shadow-soft: 0 28px 70px rgba(40, 50, 47, 0.12);
+  --shadow-green: 0 12px 28px rgba(40, 117, 104, 0.22);
+  --focus-ring: rgba(40, 117, 104, 0.25);
   --display: 'Aptos Display', 'Noto Kufi Arabic', 'IBM Plex Sans Arabic', sans-serif;
   --body: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Tahoma', sans-serif;
   color: var(--ink);
@@ -48,6 +59,17 @@ html.dark {
   --amber-soft: #2e2515;
   --red: #e07060;
   --red-soft: #2e1a16;
+  --btn-surface: #2a322d;
+  --btn-surface-hover: #353e38;
+  --glass-bg: rgba(30, 36, 32, 0.82);
+  --glass-bg-strong: rgba(30, 36, 32, 0.92);
+  --glass-bg-soft: rgba(30, 36, 32, 0.6);
+  --card-bg: #2a322d;
+  --card-bg-soft: rgba(30, 36, 32, 0.9);
+  --gradient-tint: #2a322d;
+  --shadow-soft: 0 28px 70px rgba(0, 0, 0, 0.45);
+  --shadow-green: 0 12px 28px rgba(58, 158, 138, 0.28);
+  --focus-ring: rgba(58, 158, 138, 0.35);
   color: var(--ink);
   background:
     linear-gradient(135deg, rgba(40, 117, 104, 0.14), transparent 28%),

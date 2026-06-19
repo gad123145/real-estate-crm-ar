@@ -1481,10 +1481,10 @@ function App() {
         </div>
         <div className="header-actions" aria-label="إجراءات سريعة">
           <ThemeToggle />
-          <button type="button" className="primary-action" onClick={() => setActiveSection('ai')}>
+          <button type="button" className="secondary-action" onClick={() => setActiveSection('ai')}>
             الذكاء الصناعي
           </button>
-          <button type="button" className="primary-action" onClick={() => setActiveSection('owners')}>
+          <button type="button" className="secondary-action" onClick={() => setActiveSection('owners')}>
             إضافة عقار
           </button>
           <button type="button" className="secondary-action" onClick={() => setActiveSection('seekers')}>
@@ -1714,6 +1714,11 @@ function App() {
 
         {activeSection === 'ai' && (
           <section className="ai-workspace" aria-label="إعدادات ومساعد الذكاء الصناعي">
+            <div className="section-back-bar">
+              <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+              </button>
+            </div>
             <section className="ai-hero-panel">
               <div>
                 <p className="eyebrow">مساعد ذكي</p>
@@ -1840,6 +1845,11 @@ function App() {
 
         {activeSection === 'owners' && (
           <section className="workspace-grid" aria-label="الملاك والعقارات">
+            <div className="section-back-bar">
+              <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+              </button>
+            </div>
             <form className="form-panel" onSubmit={saveOwner}>
               <div className="section-heading">
                 <p className="eyebrow">قسم العقارات</p>
@@ -2068,7 +2078,12 @@ function App() {
           selectedOwner ? (
             <section className="property-detail-page" aria-label="تفاصيل العقار">
               <div className="detail-toolbar">
-                <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+                <div className="section-back-bar" style={{ margin: 0 }}>
+                  <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                    <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+                  </button>
+                  <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+                </div>
                 <button type="button" className="text-action" onClick={() => editOwner(selectedOwner)}>تعديل البيانات</button>
               </div>
 
@@ -2169,13 +2184,23 @@ function App() {
           ) : (
             <section className="detail-section">
               <p className="empty-state">لم يتم العثور على العقار المحدد.</p>
-              <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+              <div className="section-back-bar" style={{ margin: 0 }}>
+                <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                  <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+                </button>
+                <button type="button" className="secondary-action" onClick={backToOwners}>عودة للعقارات</button>
+              </div>
             </section>
           )
         )}
 
         {activeSection === 'seekers' && (
           <section className="workspace-grid seekers-workspace" aria-label="طلبات العملاء">
+            <div className="section-back-bar">
+              <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+              </button>
+            </div>
             <form className={`form-panel seeker-form-panel ${isSeekerFormOpen ? 'is-open' : 'is-collapsed'}`} onSubmit={saveSeeker}>
               <div className="collapsible-form-header">
                 <div className="section-heading">
@@ -2490,6 +2515,11 @@ function App() {
 
         {activeSection === 'appointments' && (
           <section className="workspace-grid" aria-label="المواعيد والمعاينات">
+            <div className="section-back-bar">
+              <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+              </button>
+            </div>
             <section className="reminder-settings-card">
               <div>
                 <p className="eyebrow">إعدادات التذكير</p>
@@ -2616,6 +2646,11 @@ function App() {
         )}
         {activeSection === 'tasks' && (
           <section className="workspace-grid" aria-label="المهام والمتابعات">
+            <div className="section-back-bar">
+              <button type="button" className="back-btn" onClick={() => setActiveSection('dashboard')}>
+                <span className="back-arrow">→</span> العودة للقائمة الرئيسية
+              </button>
+            </div>
             <div className="tasks-panel">
               <div className="section-heading">
                 <p className="eyebrow">إدارة المهام</p>
