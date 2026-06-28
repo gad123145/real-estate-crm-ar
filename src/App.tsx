@@ -146,6 +146,7 @@ const APPOINTMENT_STATUSES: AppointmentStatus[] = ['مؤكد', 'مبدئي', 'ت
 const APPOINTMENT_TYPES = ['مكالمة', 'معاينة', 'متابعة', 'توقيع عقد', 'تحصيل', 'مقابلة']
 const AI_SETTINGS_STORAGE_KEY = 'real-estate-crm-ai-settings'
 const REMINDER_LEAD_STORAGE_KEY = 'real-estate-crm-reminder-lead-minutes'
+const REMINDER_CHECK_TAG = 'crm-reminder-check'
 const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   gemini: 'Gemini',
   openrouter: 'OpenRouter',
@@ -665,6 +666,44 @@ function App() {
     }
   }, [])
 
+  // إرسال المواعيد والإعدادات إلى الـ Service Worker ليستخدمها في الخلفية
+  const syncToServiceWorker = () => {
+    if (!('serviceWorker' in navigator)) return
+    const controller = navigator.serviceWorker.controller
+    if (!controller) return
+    controller.postMessage({ type: 'UPDATE_APPOINTMENTS', appointments })
+    controller.postMessage({ type: 'UPDATE_SETTINGS', settings: { reminderLeadMinutes } })
+  }
+
+  useEffect(() => {
+    syncToServiceWorker()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointments, reminderLeadMinutes])
+
+  // فحص فوري عند عودة التطبيق من الخلفية (على الهاتف أو المتصفح)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setCurrentTime(Date.now())
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'CHECK_NOW' })
+        }
+      }
+    }
+    const handleOnline = () => {
+      setCurrentTime(Date.now())
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'CHECK_NOW' })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
       if (mediaArchiveUrlRef.current) URL.revokeObjectURL(mediaArchiveUrlRef.current)
@@ -878,8 +917,24 @@ function App() {
 
     const permission = await Notification.requestPermission()
     setNotificationPermission(permission)
+
+    // محاولة تفعيل التنبيهات الدورية في الخلفية (Periodic Background Sync)
+    let backgroundSyncStatus = ''
+    if ('serviceWorker' in navigator && 'periodicSync' in window.ServiceWorkerRegistration.prototype) {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (registration as any).periodicSync.register(REMINDER_CHECK_TAG, {
+          minInterval: 5 * 60 * 1000,
+        })
+        backgroundSyncStatus = ' وتم تفعيل الفحص الدوري في الخلفية.'
+      } catch {
+        backgroundSyncStatus = ' (الفحص الدوري في الخلفية غير مدعوم على هذا الجهاز، لكن سيتم الفحص عند فتح التطبيق.)'
+      }
+    }
+
     setStatusMessage(permission === 'granted'
-      ? 'تم تفعيل تنبيهات المواعيد والصوت على هذا الجهاز.'
+      ? `تم تفعيل تنبيهات المواعيد والصوت على هذا الجهاز.${backgroundSyncStatus}`
       : 'لم يتم السماح بإشعارات المتصفح. سيبقى التنبيه داخل التطبيق بالصوت عند فتحه.')
   }
 
@@ -2564,6 +2619,9 @@ function App() {
               <div>
                 <p className="eyebrow">إعدادات التذكير</p>
                 <h2>تنبيه قبل الموعد بصوت واضح وتكرار حتى اتخاذ إجراء.</h2>
+                <p className="field-hint" style={{ marginTop: 8, maxWidth: 520 }}>
+                  لضمان وصول التنبيهات حتى عند إغلاق التطبيق على الهاتف: ثبّت التطبيق كأيقونة على الشاشة الرئيسية (Add to Home Screen)، وفعّل الإشعارات من زر «تفعيل الصوت والتنبيهات»، واترك التطبيق مثبتاً في الخلفية. سيقوم النظام بفحص المواعيد دورياً وإرسال إشعار فوري عند اقتراب موعد.
+                </p>
               </div>
               <div className="reminder-controls">
                 <label>
