@@ -147,6 +147,7 @@ const APPOINTMENT_TYPES = ['مكالمة', 'معاينة', 'متابعة', 'تو
 const AI_SETTINGS_STORAGE_KEY = 'real-estate-crm-ai-settings'
 const REMINDER_LEAD_STORAGE_KEY = 'real-estate-crm-reminder-lead-minutes'
 const REMINDER_CHECK_TAG = 'crm-reminder-check'
+const REMINDERS_ENABLED_STORAGE_KEY = 'real-estate-crm-reminders-enabled'
 const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   gemini: 'Gemini',
   openrouter: 'OpenRouter',
@@ -639,6 +640,13 @@ function App() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiStatus, setAiStatus] = useState('')
   const [reminderLeadMinutes, setReminderLeadMinutes] = useState(() => readSavedReminderLeadMinutes())
+  const [remindersEnabled, setRemindersEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(REMINDERS_ENABLED_STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => (
     'Notification' in window ? Notification.permission : 'unsupported'
   ))
@@ -679,6 +687,26 @@ function App() {
     syncToServiceWorker()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appointments, reminderLeadMinutes])
+
+  // إعادة تفعيل الفحص الدوري في الـ Service Worker عند بدء التطبيق إذا كانت التنبيهات مفعّلة
+  useEffect(() => {
+    if (!remindersEnabled) return
+    if (!('serviceWorker' in navigator)) return
+    const controller = navigator.serviceWorker.controller
+    if (controller) {
+      controller.postMessage({ type: 'START_CHECKING' })
+    } else {
+      // انتظار جاهزية الـ Service Worker ثم إرسال رسالة التفعيل
+      navigator.serviceWorker.ready.then((reg) => {
+        if (reg.active) {
+          reg.active.postMessage({ type: 'UPDATE_APPOINTMENTS', appointments })
+          reg.active.postMessage({ type: 'UPDATE_SETTINGS', settings: { reminderLeadMinutes } })
+          reg.active.postMessage({ type: 'START_CHECKING' })
+        }
+      }).catch(() => undefined)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remindersEnabled])
 
   // فحص فوري عند عودة التطبيق من الخلفية (على الهاتف أو المتصفح)
   useEffect(() => {
@@ -915,27 +943,73 @@ function App() {
       return
     }
 
-    const permission = await Notification.requestPermission()
+    // طلب إذن الإشعارات
+    let permission = Notification.permission
+    if (permission !== 'granted') {
+      permission = await Notification.requestPermission()
+    }
     setNotificationPermission(permission)
 
-    // محاولة تفعيل التنبيهات الدورية في الخلفية (Periodic Background Sync)
-    let backgroundSyncStatus = ''
-    if ('serviceWorker' in navigator && 'periodicSync' in window.ServiceWorkerRegistration.prototype) {
-      try {
-        const registration = await navigator.serviceWorker.ready
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (registration as any).periodicSync.register(REMINDER_CHECK_TAG, {
-          minInterval: 5 * 60 * 1000,
-        })
-        backgroundSyncStatus = ' وتم تفعيل الفحص الدوري في الخلفية.'
-      } catch {
-        backgroundSyncStatus = ' (الفحص الدوري في الخلفية غير مدعوم على هذا الجهاز، لكن سيتم الفحص عند فتح التطبيق.)'
-      }
+    if (permission !== 'granted') {
+      setStatusMessage('لم يتم السماح بإشعارات المتصفح. يرجى السماح بالإشعارات من إعدادات المتصفح ثم إعادة المحاولة.')
+      return
     }
 
-    setStatusMessage(permission === 'granted'
-      ? `تم تفعيل تنبيهات المواعيد والصوت على هذا الجهاز.${backgroundSyncStatus}`
-      : 'لم يتم السماح بإشعارات المتصفح. سيبقى التنبيه داخل التطبيق بالصوت عند فتحه.')
+    // التأكد من تسجيل الـ Service Worker وتفعيله
+    let backgroundSyncStatus = ''
+    try {
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready
+        const controller = navigator.serviceWorker.controller
+
+        // محاولة تفعيل Periodic Background Sync (يعمل على Chrome Android)
+        if ('periodicSync' in registration) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (registration as any).periodicSync.register(REMINDER_CHECK_TAG, {
+              minInterval: 5 * 60 * 1000,
+            })
+            backgroundSyncStatus = ' وتم تفعيل الفحص الدوري في الخلفية.'
+          } catch {
+            backgroundSyncStatus = ' (الفحص الدوري في الخلفية غير مدعوم على هذا الجهاز، لكن سيتم الفحص عند فتح التطبيق.)'
+          }
+        }
+
+        // إرسال البيانات الحالية + تفعيل الفحص الدوري الداخلي + فحص فوري
+        if (controller) {
+          controller.postMessage({ type: 'UPDATE_APPOINTMENTS', appointments })
+          controller.postMessage({ type: 'UPDATE_SETTINGS', settings: { reminderLeadMinutes } })
+          controller.postMessage({ type: 'START_CHECKING' })
+        }
+      }
+    } catch {
+      backgroundSyncStatus = ' (حدث خطأ أثناء تفعيل الفحص في الخلفية، لكن الإشعارات مفعلة.)'
+    }
+
+    // حفظ حالة التفعيل
+    setRemindersEnabled(true)
+    try {
+      localStorage.setItem(REMINDERS_ENABLED_STORAGE_KEY, 'true')
+    } catch {
+      // تجاهل أخطاء localStorage
+    }
+
+    setStatusMessage(`تم تفعيل تنبيهات المواعيد والصوت على هذا الجهاز بنجاح.${backgroundSyncStatus}`)
+    addToast('تم تفعيل التنبيهات والصوت بنجاح', 'success')
+  }
+
+  const disableReminderAlerts = () => {
+    setRemindersEnabled(false)
+    try {
+      localStorage.setItem(REMINDERS_ENABLED_STORAGE_KEY, 'false')
+    } catch {
+      // تجاهل
+    }
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'STOP_CHECKING' })
+    }
+    setStatusMessage('تم إيقاف تنبيهات المواعيد. يمكنك إعادة تفعيلها في أي وقت.')
+    addToast('تم إيقاف التنبيهات', 'info')
   }
 
   const resetOwnerForm = () => {
@@ -2628,7 +2702,15 @@ function App() {
                   التذكير قبل الموعد بالدقائق
                   <input min="0" max="1440" step="5" type="number" value={reminderLeadMinutes} onChange={(event) => updateReminderLead(event.target.value)} />
                 </label>
-                <button type="button" className="primary-action" onClick={enableReminderAlerts}>تفعيل الصوت والتنبيهات</button>
+                {remindersEnabled ? (
+                  <button type="button" className="primary-action reminders-active-btn" onClick={disableReminderAlerts}>
+                    ✓ التنبيهات مفعّلة - اضغط للإيقاف
+                  </button>
+                ) : (
+                  <button type="button" className="primary-action" onClick={enableReminderAlerts}>
+                    تفعيل الصوت والتنبيهات
+                  </button>
+                )}
                 <span className="field-hint">
                   حالة إشعارات المتصفح: {notificationPermission === 'granted' ? 'مفعلة' : notificationPermission === 'denied' ? 'مرفوضة' : notificationPermission === 'unsupported' ? 'غير مدعومة' : 'لم يتم السماح بعد'}
                 </span>

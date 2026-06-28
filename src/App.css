@@ -154,6 +154,22 @@ textarea:focus-visible {
   background: var(--green-dark);
 }
 
+.reminders-active-btn {
+  background: var(--green-dark);
+  box-shadow: 0 0 0 3px rgba(40, 117, 104, 0.25), var(--shadow-green);
+  animation: reminderPulse 2.4s ease-in-out infinite;
+}
+
+.reminders-active-btn:hover {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(189, 74, 58, 0.25), var(--shadow-green);
+}
+
+@keyframes reminderPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(40, 117, 104, 0.25), var(--shadow-green); }
+  50% { box-shadow: 0 0 0 6px rgba(40, 117, 104, 0.15), var(--shadow-green); }
+}
+
 .secondary-action {
   background: var(--btn-surface);
   color: var(--ink);
