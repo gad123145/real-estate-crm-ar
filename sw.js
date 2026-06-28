@@ -94,6 +94,23 @@ async function checkDueAppointments() {
 }
 
 // ===== فحص فوري عند تنشيط الـ Service Worker =====
+let internalCheckTimer = null
+
+function startInternalPeriodicCheck() {
+  if (internalCheckTimer) return
+  // فحص دوري كل دقيقتين داخل الـ Service Worker (يعمل حتى بدون periodicsync)
+  internalCheckTimer = setInterval(() => {
+    void checkDueAppointments()
+  }, 2 * 60 * 1000)
+}
+
+function stopInternalPeriodicCheck() {
+  if (internalCheckTimer) {
+    clearInterval(internalCheckTimer)
+    internalCheckTimer = null
+  }
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
@@ -108,7 +125,8 @@ self.addEventListener('activate', (event) => {
           // تجاهل إذا لم يكن مدعوماً أو لم يُسمح به
         }
       }
-      // فحص فوري عند التنشيط
+      // تشغيل الفحص الدوري الداخلي + فحص فوري
+      startInternalPeriodicCheck()
       await checkDueAppointments()
     })()
   )
@@ -146,6 +164,11 @@ self.addEventListener('message', (event) => {
     )
   } else if (data.type === 'CHECK_NOW') {
     event.waitUntil(checkDueAppointments())
+  } else if (data.type === 'START_CHECKING') {
+    startInternalPeriodicCheck()
+    event.waitUntil(checkDueAppointments())
+  } else if (data.type === 'STOP_CHECKING') {
+    stopInternalPeriodicCheck()
   }
 })
 
