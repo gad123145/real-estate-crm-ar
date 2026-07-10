@@ -1065,6 +1065,8 @@ function App() {
     setOwnerForm(nextOwner)
     setOwnerFiles(aiFiles)
     setEditingOwnerId(null)
+    setOwnerFormTab('basic')
+    setIsOwnerFormOpen(true)
     setActiveSection('owners')
     setStatusMessage('تم ملء نموذج المالك والعقار. راجع البيانات ثم اضغط إضافة المالك.')
   }
