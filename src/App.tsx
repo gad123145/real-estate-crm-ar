@@ -34,6 +34,12 @@ import { addToast, ToastContainer } from './components/Toast'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ThemeToggle } from './components/ThemeToggle'
 import { useTasks, getTaskLinkLabel } from './hooks/useTasks'
+import {
+  appointmentPushConfigurationMessage,
+  disableAppointmentPush,
+  enableAppointmentPush,
+  refreshAppointmentPush,
+} from './pushNotifications'
 
 type ActiveSection = 'dashboard' | 'owners' | 'seekers' | 'appointments' | 'propertyDetail' | 'ai' | 'tasks'
 export type ClientKind = 'owner' | 'seeker' | 'general'
@@ -650,6 +656,7 @@ function App() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => (
     'Notification' in window ? Notification.permission : 'unsupported'
   ))
+  const [pushNotificationStatus, setPushNotificationStatus] = useState<'inactive' | 'checking' | 'active' | 'error'>('inactive')
   const reminderAudioContextRef = useRef<AudioContext | null>(null)
 
   // Tasks system
@@ -707,6 +714,19 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remindersEnabled])
+
+  // إعادة تسجيل اشتراك Web Push عند الدخول أو تغيير وقت التذكير.
+  useEffect(() => {
+    if (!remindersEnabled || !session) {
+      setPushNotificationStatus('inactive')
+      return
+    }
+
+    setPushNotificationStatus('checking')
+    void refreshAppointmentPush(reminderLeadMinutes)
+      .then((active) => setPushNotificationStatus(active ? 'active' : 'error'))
+      .catch(() => setPushNotificationStatus('error'))
+  }, [reminderLeadMinutes, remindersEnabled, session])
 
   // فحص فوري عند عودة التطبيق من الخلفية (على الهاتف أو المتصفح)
   useEffect(() => {
@@ -955,6 +975,17 @@ function App() {
       return
     }
 
+    try {
+      setPushNotificationStatus('checking')
+      await enableAppointmentPush(reminderLeadMinutes)
+      setPushNotificationStatus('active')
+    } catch (error) {
+      setPushNotificationStatus('error')
+      setStatusMessage(`تعذر تفعيل الإشعارات عند إغلاق التطبيق: ${getCrmErrorMessage(error)}`)
+      addToast('تعذر ربط إشعارات الهاتف بالخادم', 'error')
+      return
+    }
+
     // التأكد من تسجيل الـ Service Worker وتفعيله
     let backgroundSyncStatus = ''
     try {
@@ -994,12 +1025,18 @@ function App() {
       // تجاهل أخطاء localStorage
     }
 
-    setStatusMessage(`تم تفعيل تنبيهات المواعيد والصوت على هذا الجهاز بنجاح.${backgroundSyncStatus}`)
+    setStatusMessage(`تم تفعيل إشعارات المواعيد الفورية حتى عند إغلاق التطبيق، بالإضافة إلى الصوت داخل التطبيق.${backgroundSyncStatus}`)
     addToast('تم تفعيل التنبيهات والصوت بنجاح', 'success')
   }
 
-  const disableReminderAlerts = () => {
+  const disableReminderAlerts = async () => {
+    try {
+      await disableAppointmentPush()
+    } catch (error) {
+      setStatusMessage(`تم إيقاف التنبيه المحلي، لكن تعذر حذف اشتراك الخادم: ${getCrmErrorMessage(error)}`)
+    }
     setRemindersEnabled(false)
+    setPushNotificationStatus('inactive')
     try {
       localStorage.setItem(REMINDERS_ENABLED_STORAGE_KEY, 'false')
     } catch {
@@ -2696,7 +2733,7 @@ function App() {
                 <p className="eyebrow">إعدادات التذكير</p>
                 <h2>تنبيه قبل الموعد بصوت واضح وتكرار حتى اتخاذ إجراء.</h2>
                 <p className="field-hint" style={{ marginTop: 8, maxWidth: 520 }}>
-                  لضمان وصول التنبيهات حتى عند إغلاق التطبيق على الهاتف: ثبّت التطبيق كأيقونة على الشاشة الرئيسية (Add to Home Screen)، وفعّل الإشعارات من زر «تفعيل الصوت والتنبيهات»، واترك التطبيق مثبتاً في الخلفية. سيقوم النظام بفحص المواعيد دورياً وإرسال إشعار فوري عند اقتراب موعد.
+                  بعد التفعيل يرسل الخادم إشعار الموعد إلى الهاتف حتى لو كان التطبيق مغلقًا بالكامل. على iPhone أو iPad يلزم iOS 16.4 أو أحدث، وتثبيت التطبيق على الشاشة الرئيسية أولًا، ثم فتحه من الأيقونة وتفعيل الإشعارات.
                 </p>
               </div>
               <div className="reminder-controls">
@@ -2705,7 +2742,7 @@ function App() {
                   <input min="0" max="1440" step="5" type="number" value={reminderLeadMinutes} onChange={(event) => updateReminderLead(event.target.value)} />
                 </label>
                 {remindersEnabled ? (
-                  <button type="button" className="primary-action reminders-active-btn" onClick={disableReminderAlerts}>
+                  <button type="button" className="primary-action reminders-active-btn" onClick={() => void disableReminderAlerts()}>
                     ✓ التنبيهات مفعّلة - اضغط للإيقاف
                   </button>
                 ) : (
@@ -2715,6 +2752,9 @@ function App() {
                 )}
                 <span className="field-hint">
                   حالة إشعارات المتصفح: {notificationPermission === 'granted' ? 'مفعلة' : notificationPermission === 'denied' ? 'مرفوضة' : notificationPermission === 'unsupported' ? 'غير مدعومة' : 'لم يتم السماح بعد'}
+                </span>
+                <span className="field-hint">
+                  إشعارات الخادم عند إغلاق التطبيق: {pushNotificationStatus === 'active' ? 'مرتبطة بهذا الهاتف' : pushNotificationStatus === 'checking' ? 'جار التحقق...' : pushNotificationStatus === 'error' ? appointmentPushConfigurationMessage() || 'غير مرتبطة - أعد الضغط على زر التفعيل' : 'غير مفعلة'}
                 </span>
               </div>
             </section>
