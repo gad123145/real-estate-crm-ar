@@ -627,6 +627,7 @@ function App() {
   const [downloadingOwnerId, setDownloadingOwnerId] = useState<string | null>(null)
   const [mediaArchive, setMediaArchive] = useState<{ ownerId: string; url: string; name: string } | null>(null)
   const mediaArchiveUrlRef = useRef<string | null>(null)
+  const appointmentFormRef = useRef<HTMLFormElement | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
   const [dataLoading, setDataLoading] = useState(false)
@@ -827,27 +828,28 @@ function App() {
   const dueAppointment = liveAppointments
     .filter((appointment) => appointmentStart(appointment) - reminderLeadMs <= now)
     .sort((first, second) => appointmentStart(first) - appointmentStart(second))[0]
+  const visibleDueAppointment = dueAppointment?.id === editingAppointmentId ? undefined : dueAppointment
 
   useEffect(() => {
-    if (!dueAppointment) return
+    if (!visibleDueAppointment) return
 
     playReminderTone(reminderAudioContextRef)
     const timer = window.setInterval(() => playReminderTone(reminderAudioContextRef), 12000)
     return () => window.clearInterval(timer)
-  }, [dueAppointment])
+  }, [visibleDueAppointment])
 
   useEffect(() => {
-    if (!dueAppointment || notificationPermission !== 'granted') return
+    if (!visibleDueAppointment || notificationPermission !== 'granted') return
 
     const notify = () => {
-      const minutesUntil = minutesUntilAppointment(dueAppointment)
-      void showReminderNotification(dueAppointment, minutesUntil)
+      const minutesUntil = minutesUntilAppointment(visibleDueAppointment)
+      void showReminderNotification(visibleDueAppointment, minutesUntil)
     }
 
     notify()
     const timer = window.setInterval(notify, 60000)
     return () => window.clearInterval(timer)
-  }, [dueAppointment, notificationPermission])
+  }, [visibleDueAppointment, notificationPermission])
 
   const conflictGroups = appointments.filter((appointment) => findAppointmentConflicts(appointment, appointments).length > 0)
   const currentAppointmentConflicts = findAppointmentConflicts(
@@ -1415,6 +1417,9 @@ function App() {
     setAppointmentForm(appointmentToForm(appointment))
     setEditingAppointmentId(appointment.id)
     setActiveSection('appointments')
+    window.requestAnimationFrame(() => {
+      appointmentFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const deleteOwner = (id: string) => {
@@ -1680,26 +1685,26 @@ function App() {
         {statusMessage && <strong className="danger-text">{statusMessage}</strong>}
       </div>
 
-      {dueAppointment && (
+      {visibleDueAppointment && (
         <div className="reminder-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="appointment-reminder-title">
           <section className="reminder-card">
             <p className="eyebrow">تنبيه موعد متكرر</p>
-            <h2 id="appointment-reminder-title">{dueAppointment.title || dueAppointment.appointmentType}</h2>
+            <h2 id="appointment-reminder-title">{visibleDueAppointment.title || visibleDueAppointment.appointmentType}</h2>
             <p>
-              {dueAppointment.clientName || 'بدون عميل'} - {formatDate(dueAppointment.date)} الساعة {dueAppointment.time} - {' '}
-              {minutesUntilAppointment(dueAppointment) > 0 ? `متبقّي ${numberFormatter.format(minutesUntilAppointment(dueAppointment))} دقيقة` : 'الموعد بدأ أو متأخر'}
+              {visibleDueAppointment.clientName || 'بدون عميل'} - {formatDate(visibleDueAppointment.date)} الساعة {visibleDueAppointment.time} - {' '}
+              {minutesUntilAppointment(visibleDueAppointment) > 0 ? `متبقّي ${numberFormatter.format(minutesUntilAppointment(visibleDueAppointment))} دقيقة` : 'الموعد بدأ أو متأخر'}
             </p>
             <div className="meta-line">
-              <span>{dueAppointment.location || 'مكان غير محدد'}</span>
-              <span>{readDurationMinutes(dueAppointment.durationMinutes)} دقيقة</span>
-              <span>{dueAppointment.phone}</span>
+              <span>{visibleDueAppointment.location || 'مكان غير محدد'}</span>
+              <span>{readDurationMinutes(visibleDueAppointment.durationMinutes)} دقيقة</span>
+              <span>{visibleDueAppointment.phone}</span>
               <span>التذكير قبل {numberFormatter.format(reminderLeadMinutes)} دقيقة</span>
             </div>
             <div className="row-actions">
-              {phoneHref(dueAppointment.phone) && <a className="primary-action" href={phoneHref(dueAppointment.phone)}>اتصال</a>}
-              {whatsappHref(dueAppointment.phone) && <a className="text-action" href={whatsappHref(dueAppointment.phone)} target="_blank" rel="noreferrer">واتساب</a>}
-              <button type="button" className="secondary-action" onClick={() => editAppointment(dueAppointment)}>تعديل الموعد</button>
-              <button type="button" className="primary-action" onClick={() => completeAppointment(dueAppointment)} disabled={isSaving}>تمت المتابعة</button>
+              {phoneHref(visibleDueAppointment.phone) && <a className="primary-action" href={phoneHref(visibleDueAppointment.phone)}>اتصال</a>}
+              {whatsappHref(visibleDueAppointment.phone) && <a className="text-action" href={whatsappHref(visibleDueAppointment.phone)} target="_blank" rel="noreferrer">واتساب</a>}
+              <button type="button" className="secondary-action" onClick={() => editAppointment(visibleDueAppointment)}>تعديل الموعد</button>
+              <button type="button" className="primary-action" onClick={() => completeAppointment(visibleDueAppointment)} disabled={isSaving}>تمت المتابعة</button>
             </div>
           </section>
         </div>
@@ -2758,7 +2763,7 @@ function App() {
                 </span>
               </div>
             </section>
-            <form className="form-panel" onSubmit={saveAppointment}>
+            <form ref={appointmentFormRef} className="form-panel" onSubmit={saveAppointment}>
               <div className="section-heading">
                 <p className="eyebrow">المواعيد</p>
                 <h2>{editingAppointmentId ? 'تعديل ميعاد' : 'إضافة ميعاد أو معاينة'}</h2>
