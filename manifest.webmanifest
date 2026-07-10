@@ -2,6 +2,7 @@
   "name": "نظام إدارة العملاء العقاريين",
   "short_name": "CRM عقاري",
   "description": "إدارة العقارات والعملاء والمواعيد بتذكيرات ذكية.",
+  "id": "/real-estate-crm-ar/",
   "start_url": "/real-estate-crm-ar/",
   "scope": "/real-estate-crm-ar/",
   "display": "standalone",

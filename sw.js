@@ -3,6 +3,31 @@ const APPOINTMENTS_CACHE = 'crm-appointments-v1'
 const SETTINGS_CACHE = 'crm-settings-v1'
 const REMINDER_CHECK_TAG = 'crm-reminder-check'
 
+// إشعارات Web Push القادمة من الخادم تعمل حتى عندما يكون التطبيق مغلقاً.
+self.addEventListener('push', (event) => {
+  let payload = {}
+  try {
+    payload = event.data ? event.data.json() : {}
+  } catch {
+    payload = { body: event.data?.text() || 'لديك موعد قريب.' }
+  }
+
+  const title = payload.title || 'تنبيه موعد'
+  const notificationUrl = payload.url || self.registration.scope
+  event.waitUntil(self.registration.showNotification(title, {
+    body: payload.body || 'لديك موعد قريب.',
+    icon: `${self.registration.scope}icon-192.png`,
+    badge: `${self.registration.scope}icon-192.png`,
+    tag: payload.tag || `push-appointment-${payload.appointmentId || Date.now()}`,
+    renotify: true,
+    requireInteraction: true,
+    data: {
+      appointmentId: payload.appointmentId || null,
+      url: notificationUrl,
+    },
+  }))
+})
+
 // التثبيت - أخذ التحكم فوراً
 self.addEventListener('install', () => {
   void self.skipWaiting()
@@ -177,7 +202,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
   event.waitUntil((async () => {
-    const appUrl = new URL(self.registration.scope)
+    const appUrl = new URL(event.notification.data?.url || self.registration.scope, self.registration.scope)
     const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true })
     const currentWindow = windows.find((client) => client.url.startsWith(appUrl.href))
 
